@@ -1,18 +1,36 @@
 import dotenv from "dotenv";
 import twilio from "twilio";
+import nodemailer from "nodemailer";
 import OwnerNotification from "../model/ownerNotificationModel.js";
+import Owner from "../model/OwnerModels.js";
 
 dotenv.config();
 
-const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID || "";
-const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN || "";
-const twilioSmsFrom = process.env.TWILIO_SMS_FROM || ""; // E.g., +15005550006 (Twilio trial/test from)
-const twilioWhatsappFrom = process.env.TWILIO_WHATSAPP_FROM || ""; // E.g., whatsapp:+14155238886
+// --- Dynamic Configuration Helpers ---
 
-let twilioClient = null;
-if (twilioAccountSid && twilioAuthToken) {
-  twilioClient = twilio(twilioAccountSid, twilioAuthToken);
-}
+const getTransporter = (owner) => {
+  const settings = owner?.settings?.notificationSettings;
+  const user = settings?.emailUser || process.env.EMAIL_USER;
+  const pass = settings?.emailPass || process.env.EMAIL_PASS;
+  const service = settings?.emailService || "gmail";
+
+  if (!user || !pass) return null;
+
+  return nodemailer.createTransport({
+    service,
+    auth: { user, pass },
+  });
+};
+
+const getTwilioConfig = (owner) => {
+  const settings = owner?.settings?.notificationSettings;
+  return {
+    sid: settings?.twilioSid || process.env.TWILIO_ACCOUNT_SID,
+    token: settings?.twilioAuthToken || process.env.TWILIO_AUTH_TOKEN,
+    smsFrom: settings?.twilioFrom || process.env.TWILIO_SMS_FROM,
+    whatsappFrom: settings?.twilioFrom ? `whatsapp:${settings.twilioFrom}` : process.env.TWILIO_WHATSAPP_FROM
+  };
+};
 
 
 
@@ -58,16 +76,20 @@ function sanitizePhoneE164(phone) {
   return null;
 }
 
-export async function sendSMS(toPhone, body) {
-    console.log(toPhone,"----------toPhone--------");
-    
-  if (!twilioClient || !twilioSmsFrom) return { sent: false, reason: "Twilio SMS not configured" };
+export async function sendSMS(toPhone, body, owner = null) {
+  const config = getTwilioConfig(owner);
+  if (!config.sid || !config.token || !config.smsFrom) {
+    return { sent: false, reason: "Twilio SMS not configured" };
+  }
+
+  const client = twilio(config.sid, config.token);
   const to = sanitizePhoneE164(toPhone);
   if (!to) return { sent: false, reason: "Invalid recipient phone" };
+
   try {
-    const res = await twilioClient.messages.create({
+    const res = await client.messages.create({
       to,
-      from: twilioSmsFrom,
+      from: config.smsFrom,
       body,
     });
     return { sent: true, sid: res.sid };
@@ -76,15 +98,21 @@ export async function sendSMS(toPhone, body) {
   }
 }
 
-export async function sendWhatsApp(toPhone, body) {
-  if (!twilioClient || !twilioWhatsappFrom) return { sent: false, reason: "Twilio WhatsApp not configured" };
+export async function sendWhatsApp(toPhone, body, owner = null) {
+  const config = getTwilioConfig(owner);
+  if (!config.sid || !config.token || !config.whatsappFrom) {
+    return { sent: false, reason: "Twilio WhatsApp not configured" };
+  }
+
+  const client = twilio(config.sid, config.token);
   const e164 = sanitizePhoneE164(toPhone);
   if (!e164) return { sent: false, reason: "Invalid recipient phone" };
   const to = `whatsapp:${e164}`;
+
   try {
-    const res = await twilioClient.messages.create({
+    const res = await client.messages.create({
       to,
-      from: twilioWhatsappFrom,
+      from: config.whatsappFrom,
       body,
     });
     return { sent: true, sid: res.sid };
@@ -93,9 +121,27 @@ export async function sendWhatsApp(toPhone, body) {
   }
 }
 
-// Placeholder email sender – can be implemented via nodemailer later
-export async function sendEmail(/* to, subject, html */) {
-  return { sent: false, reason: "Email not configured" };
+// Email sender
+export async function sendEmail(to, subject, body, owner = null) {
+  const transporter = getTransporter(owner);
+  if (!transporter) {
+    return { sent: false, reason: "Email credentials not configured" };
+  }
+
+  const fromEmail = owner?.settings?.notificationSettings?.emailUser || process.env.EMAIL_USER;
+
+  try {
+    await transporter.sendMail({
+      from: fromEmail,
+      to,
+      subject,
+      text: body,
+    });
+    return { sent: true };
+  } catch (err) {
+    console.error("❌ Email send failed:", err);
+    return { sent: false, reason: err.message };
+  }
 }
 
 export function buildOrderMessage({ greetingName, orderNumber, amount, status }) {
@@ -149,6 +195,26 @@ export async function createOwnerNotification({ ownerId, type, title, message, o
       orderId,
     });
     await notification.save();
+
+    // 📢 Fetch owner for SMS/Email
+    const owner = await Owner.findById(ownerId).select("+settings.notificationSettings.emailPass +settings.notificationSettings.twilioAuthToken");
+    if (owner) {
+      // 1. Send SMS to Owner
+      if (owner.mobile) {
+        await sendSMS(owner.mobile, `[Nexus] ${title}: ${message}`, owner);
+      }
+
+      // 2. Send Email to Owner
+      if (owner.email) {
+        await sendEmail(owner.email, `Nexus Store Notification: ${title}`, message, owner);
+      }
+
+      // 3. Optional: WhatsApp
+      if (owner.mobile) {
+        await sendWhatsApp(owner.mobile, `[Nexus] *${title}*\n${message}`, owner);
+      }
+    }
+
     return { success: true, notification };
   } catch (err) {
     console.error("❌ Error creating owner notification:", err);

@@ -221,6 +221,14 @@ const OwnerSchema = new Schema(
           shippingCharge: Number
         }]
       },
+      notificationSettings: {
+        twilioSid: { type: String, trim: true },
+        twilioAuthToken: { type: String, trim: true, select: false },
+        twilioFrom: { type: String, trim: true },
+        emailUser: { type: String, trim: true },
+        emailPass: { type: String, trim: true, select: false },
+        emailService: { type: String, default: "gmail" }
+      },
     },
     
     // Theme customization (for backward compatibility with old UI customization)
