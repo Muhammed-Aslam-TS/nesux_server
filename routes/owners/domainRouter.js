@@ -6,6 +6,7 @@ import {
   getDomainSettings,
   setPrimaryDomain,
   verifyDomain,
+  triggerSsl,
 } from "../../controllers/owner/domainController.js";
 import { verifyAccessToken } from "../../middlewares/JWT.js";
 import { requireOwner } from "../../middlewares/authCheck.js";
@@ -26,5 +27,6 @@ router.route("/")
   .delete(deleteDomain);
 
 router.post("/verify", verifyDomain);
+router.post("/trigger-ssl", triggerSsl);
 
 export default router;

@@ -3,10 +3,12 @@ import Owner from "../../model/OwnerModels.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { ApiError } from "../../utils/ApiError.js";
+import { exec } from "child_process";
 
 // --- Constants ---
 const CNAME_TARGET = process.env.CNAME_TARGET || "shops.tasel.in";
 const SERVER_IP = process.env.SERVER_IP || "98.130.142.128";
+const AUTO_SSL_SCRIPT = process.env.AUTO_SSL_SCRIPT || "/home/ubuntu/auto-ssl.sh";
 
 // --- Helper Functions ---
 
@@ -49,6 +51,26 @@ const verifyDns = async (domainToVerify) => {
     // Any DNS resolution error means verification fails
     return false;
   }
+};
+
+/**
+ * @description Triggers the auto-SSL shell script for a verified domain.
+ */
+const runAutoSsl = (domain) => {
+  if (!domain) return;
+
+  console.log(`🚀 Triggering Auto-SSL for: ${domain}`);
+  
+  exec(`${AUTO_SSL_SCRIPT} ${domain}`, (err, stdout, stderr) => {
+    if (err) {
+      console.error(`❌ SSL Error for ${domain}:`, err);
+      return;
+    }
+    if (stderr) {
+      console.warn(`⚠️ SSL Warning for ${domain}:`, stderr);
+    }
+    console.log(`✅ SSL Success for ${domain}:`, stdout);
+  });
 };
 
 const getDomainStatus = async (hostname) => {
@@ -278,6 +300,11 @@ const verifyDomain = asyncHandler(async (req, res) => {
   }
 
   const status = await getDomainStatus(hostname);
+
+  if (status === "ACTIVE") {
+    // Trigger SSL generation asynchronously
+    runAutoSsl(hostname);
+  }
   
   return res.status(200).json(
     new ApiResponse(
@@ -288,6 +315,30 @@ const verifyDomain = asyncHandler(async (req, res) => {
   );
 });
 
+/**
+ * @description Manually trigger SSL generation for a domain.
+ * This is useful if the automatic trigger failed or if re-issuance is needed.
+ */
+const triggerSsl = asyncHandler(async (req, res) => {
+  const { hostname } = req.body;
+
+  if (!hostname) {
+    throw new ApiError(400, "Hostname is required to trigger SSL.");
+  }
+
+  // Optional: Check if domain is active before triggering?
+  const status = await getDomainStatus(hostname);
+  if (status !== "ACTIVE") {
+    throw new ApiError(400, "Domain must be verified (ACTIVE) before SSL can be issued.");
+  }
+
+  runAutoSsl(hostname);
+
+  return res.status(200).json(
+    new ApiResponse(200, { hostname }, "SSL generation triggered successfully.")
+  );
+});
+
 export {
   addDomain,
   checkDomain,
@@ -295,4 +346,5 @@ export {
   getDomainSettings,
   setPrimaryDomain,
   verifyDomain,
+  triggerSsl,
 };
