@@ -12,25 +12,16 @@ import { tenantMiddleware } from "./controllers/owner/tenantMiddleware.js";
 
 // import { tenantResolver } from "./middlewares/tenantResolver.js";
 
-import productRouter from "./routes/admin/productRouter.js";
-import offerRoutes from "./routes/admin/offerRoutes.js";
 import categoryRoutes from "./routes/owners/categoryRouter.js";
-import couponRoutes from "./routes/admin/couponRoutes.js";
 import authRouter from "./routes/user/authRouter.js";
-import userRouter from "./routes/admin/userRouter.js";
 import cartRouter from "./routes/user/cartRouter.js";
-import ownersRoutes from "./routes/admin/ownersRoutes.js";
-import ownerByReferralCodeRouter from "./routes/admin/OwnerByReferralCode.js";
 import userProductRouter from "./routes/user/UserProductrouter.js";
 import addressesRouter from "./routes/user/AddressesRouter.js";
 import ordersRouter from "./routes/user/OrdersRouter.js";
-import adminRoutes from "./routes/admin/adminRoutes.js";
-import expiredOffersRoutes from "./routes/user/ExpiredOffersRoutes.js";
 import categoryByUsersRoutes from "./routes/user/categoryByUserRoutes.js";
 import paymentRoutes from "./routes/users/paymentRoutes.js";
 import userbyProfileRouter from "./routes/user/userbyProfileRouter.js";
 import ownerOrdersRouter from "./routes/owners/OwnerOrdersRouter.js";
-import dashboardRouter from "./routes/admin/dashboardRouter.js";
 import subscriptionsRouter from "./routes/owners/Subscriptionsrouter.js";
 import shiprocketRoutes from "./routes/owners/shiprocketRoutes.js";
 import ownerInfoRouter from "./routes/owners/ownerInfoRouter.js";
@@ -50,9 +41,11 @@ import publicShippingRouter from "./routes/public/shippingRouter.js";
 import reviewRouter from "./routes/user/reviewRouter.js";
 import couponUserRouter from "./routes/user/couponRouter.js";
 import UserOwnerRouter from "./routes/owners/userRoutes.js";
+import productRouter from "./routes/owners/productRouter.js";
+import ownersRoutes from "./routes/owners/ownerRouter.js";
 
 import addonUserRouter from "./routes/users/addonUserRouter.js";
-import subscriptionRouter from "./routes/admin/subscriptionRouter.js";
+
 
 import domainRouter from "./routes/owners/domainRouter.js";
 import ownerReviewRouter from "./routes/owners/reviewRouter.js";
@@ -312,10 +305,15 @@ app.set('trust proxy', true);
 // Increase body size limit to handle large base64 images
 app.use(express.json({ limit: '500mb' }));
 app.use(express.urlencoded({ limit: '500mb', extended: true }));
-app.use(morgan("dev"));
+app.use(morgan("dev", {
+  skip: (req, res) => req.originalUrl.includes("logo")
+}));
 
 // Trace requests
 app.use((req, res, next) => {
+  if (req.originalUrl.includes("logo")) {
+    return next();
+  }
   console.log(`[Trace] ${req.method} ${req.originalUrl} - Host: ${req.get('host')}`);
   next();
 });
@@ -440,7 +438,6 @@ app.use("/api/public/partners", publicPartnerRouter);
 // ========== AUTHENTICATION & PUBLIC ROUTES ==========
 app.use("/api/auth", authRouter); // For user login/registration
 app.use("/api/outhenticate", authRouter); // Deprecated: Fix for backward compatibility
-app.use("/api/admin", adminRoutes);
 app.use("/api/owners", ownersRoutes);
 
 // ========== USER-SPECIFIC ROUTES (REQUIRE USER LOGIN) ==========
@@ -458,7 +455,7 @@ app.use("/api/notifications", notificationRouter);
 
 // ========== OWNER-SPECIFIC ROUTES (REQUIRE OWNER LOGIN) ==========
 app.use("/api/owner/subscriptions", subscriptionsRouter); // For Owners
-app.use("/api/products", productRouter); // For Admin (includes reviews)
+app.use("/api/products", productRouter); // For Owners/Public
 app.use("/api/owner/info", ownerInfoRouter); // For Owners
 app.use("/api/owner/orders", ownerOrdersRouter);
 app.use("/api/owner/dashboard", ownerDashboardRouter);
@@ -474,16 +471,7 @@ app.use("/api/owner/testimonials", ownerTestimonialRouter);
 app.use("/api/owner/partners", ownerPartnerRouter);
 app.use("/api/shiprocket", shiprocketRoutes);
 
-// ========== ADMIN-SPECIFIC ROUTES (REQUIRE ADMIN LOGIN) ==========
-app.use("/api/coupons", couponRoutes); // For Admin
-app.use("/api/offers", offerRoutes); // For Admin
-app.use("/api/categories", categoryRoutes); // For Admin
-app.use("/api/users", userRouter); // For Admin
-app.use("/api/getOwnerByReferralCode", ownerByReferralCodeRouter); // For Admin
-app.use('/api/ExpiredOffers', expiredOffersRoutes);
-app.use("/api/dashboard", dashboardRouter);
-app.use("/api/payment", paymentRoutes);
-app.use("/api/subscriptionfromAdmin", subscriptionRouter);
+// Moved to admin_server
 
 // ========== API 404 HANDLER ==========
 // Handle 404 for API routes specifically
@@ -501,34 +489,13 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Dist folder paths
 const distPaths = {
-  admin: path.join(__dirname, "adminDist"),
   default: path.join(__dirname, "dist")
 };
-
-// Fallback: Check if 'distAdmin' exists if 'adminDist' is missing
-if (!fs.existsSync(distPaths.admin) && fs.existsSync(path.join(__dirname, "distAdmin"))) {
-  distPaths.admin = path.join(__dirname, "distAdmin");
-}
 
 // Check which dist folders exist and serve them
 const availableRoutes = {};
 
-// Check admin dist
-if (fs.existsSync(distPaths.admin) && fs.existsSync(path.join(distPaths.admin, 'index.html'))) {
-  app.use("/admin", express.static(distPaths.admin));
-
-  // Serve admin assets from root /assets as well to handle absolute path requests
-  if (fs.existsSync(path.join(distPaths.admin, "assets"))) {
-    app.use("/assets", express.static(path.join(distPaths.admin, "assets")));
-  }
-
-  availableRoutes.admin = {
-    name: 'EcommerceByAdmin',
-    path: '/admin',
-    distPath: distPaths.admin,
-    status: '✅ Ready'
-  };
-}
+// Admin serving moved to separate project
 
 // Check default dist
 if (fs.existsSync(distPaths.default) && fs.existsSync(path.join(distPaths.default, 'index.html'))) {
@@ -543,14 +510,7 @@ if (fs.existsSync(distPaths.default) && fs.existsSync(path.join(distPaths.defaul
 
 // Handle SPA routing for each app
 
-app.get(['/admin', '/admin/*'], (req, res) => {
-  if (availableRoutes.admin) {
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.sendFile(path.join(availableRoutes.admin.distPath, 'index.html'));
-  } else {
-    res.status(404).json({ message: 'Admin app not found' });
-  }
-});
+
 
 // ========== CRON JOBS ==========
 // Run every minute to check for scheduled notifications

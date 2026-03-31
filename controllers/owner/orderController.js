@@ -1,19 +1,24 @@
 import shiprocketService from "../../services/shiprocketService.js";
 import { mapShiprocketStatus } from "../../middlewares/shiprocket.js";
 import Order from "../../model/orderModel.js";
+import User from "../../model/usersModel.js";
 import mongoose from "mongoose";
-// Get all orders (for admin)
+// Get all orders (for owners)
 export const getAllOrders = async (req, res) => {
   try {
-    const orders = await Order.find()
+    const ownerId = req.user.id;
+    // Find all users belonging to this owner
+    const ownerUsers = await User.find({ ownerId }).distinct("_id");
+
+    const orders = await Order.find({ userId: { $in: ownerUsers } })
       .sort({ createdAt: -1 })
       .populate({
         path: "userId",
-        select: "name email phone"
+        select: "username email mobile"
       })
       .populate({
         path: "items.productId",
-        select: "name price images"
+        select: "title price images"
       });
 
     res.status(200).json({
@@ -33,14 +38,18 @@ export const getAllOrders = async (req, res) => {
 // Get order statuses
 export const getOrderStatuses = async (req, res) => {
   try {
+    const ownerId = req.user.id;
+    const ownerUsers = await User.find({ ownerId }).distinct("_id");
+    const query = { userId: { $in: ownerUsers } };
+
     const statuses = {
-      PENDING: await Order.countDocuments({ orderStatus: "PENDING" }),
-      CONFIRMED: await Order.countDocuments({ orderStatus: "CONFIRMED" }),
-      PROCESSING: await Order.countDocuments({ orderStatus: "PROCESSING" }),
-      SHIPPED: await Order.countDocuments({ orderStatus: "SHIPPED" }),
-      DELIVERED: await Order.countDocuments({ orderStatus: "DELIVERED" }),
-      CANCELLED: await Order.countDocuments({ orderStatus: "CANCELLED" }),
-      RETURN: await Order.countDocuments({ orderStatus: "RETURN" })
+      PENDING: await Order.countDocuments({ ...query, orderStatus: "PENDING" }),
+      CONFIRMED: await Order.countDocuments({ ...query, orderStatus: "CONFIRMED" }),
+      PROCESSING: await Order.countDocuments({ ...query, orderStatus: "PROCESSING" }),
+      SHIPPED: await Order.countDocuments({ ...query, orderStatus: "SHIPPED" }),
+      DELIVERED: await Order.countDocuments({ ...query, orderStatus: "DELIVERED" }),
+      CANCELLED: await Order.countDocuments({ ...query, orderStatus: "CANCELLED" }),
+      RETURN: await Order.countDocuments({ ...query, orderStatus: "RETURN" })
     };
 
     res.status(200).json({
@@ -72,11 +81,14 @@ export const updateOrderStatus = async (req, res) => {
       });
     }
 
-    const order = await Order.findById(orderId);
+    const ownerId = req.user.id;
+    const ownerUsers = await User.find({ ownerId }).distinct("_id");
+
+    const order = await Order.findOne({ _id: orderId, userId: { $in: ownerUsers } });
     if (!order) {
       return res.status(404).json({
         success: false,
-        message: "Order not found"
+        message: "Order not found or access denied"
       });
     }
 
@@ -98,20 +110,25 @@ export const updateOrderStatus = async (req, res) => {
   }
 };
 
-// Get order statistics (for admin)
+// Get order statistics (for owner)
 export const getOrderStats = async (req, res) => {
   try {
-    const totalOrders = await Order.countDocuments();
-    const pendingOrders = await Order.countDocuments({ orderStatus: "PENDING" });
-    const processingOrders = await Order.countDocuments({ orderStatus: "PROCESSING" });
-    const shippedOrders = await Order.countDocuments({ orderStatus: "SHIPPED" });
-    const deliveredOrders = await Order.countDocuments({ orderStatus: "DELIVERED" });
-    const cancelledOrders = await Order.countDocuments({ orderStatus: "CANCELLED" });
+    const ownerId = req.user.id;
+    const ownerUsers = await User.find({ ownerId }).distinct("_id");
+    const query = { userId: { $in: ownerUsers } };
 
-    // Calculate total revenue
+    const totalOrders = await Order.countDocuments(query);
+    const pendingOrders = await Order.countDocuments({ ...query, orderStatus: "PENDING" });
+    const processingOrders = await Order.countDocuments({ ...query, orderStatus: "PROCESSING" });
+    const shippedOrders = await Order.countDocuments({ ...query, orderStatus: "SHIPPED" });
+    const deliveredOrders = await Order.countDocuments({ ...query, orderStatus: "DELIVERED" });
+    const cancelledOrders = await Order.countDocuments({ ...query, orderStatus: "CANCELLED" });
+
+    // Calculate total revenue for this owner
     const revenue = await Order.aggregate([
       {
         $match: {
+          ...query,
           orderStatus: { $in: ["DELIVERED", "SHIPPED", "PROCESSING"] }
         }
       },

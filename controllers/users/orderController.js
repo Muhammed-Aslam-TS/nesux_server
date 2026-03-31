@@ -18,6 +18,7 @@ import {
   verifyCashfreePayment,
 } from "../../middlewares/Cashfree.js";
 import { sendOrderNotifications } from "../../services/notificationService.js";
+import { createOwnerNotification } from "../../services/notificationService.js";
 import dotenv from "dotenv";
 import crypto from "crypto";
 import PDFDocument from "pdfkit";
@@ -537,6 +538,17 @@ export const createPaymentOrder = async (req, res) => {
     });
 
     await order.save();
+    
+    // 📢 Trigger notification for store owner
+    if (order.paymentMethod === "COD") {
+       createOwnerNotification({
+         ownerId,
+         type: "NEW_ORDER",
+         title: "New COD Order Received",
+         message: `You have a new COD order ${order.orderNumber} for ₹${amount}`,
+         orderId: order._id
+       });
+    }
 
     // 🚚 5️⃣ Create Shiprocket order (MOVED TO MANUAL IN ADMIN)
     // Removed automatic creation to allow admin to control the timing
@@ -756,6 +768,18 @@ export const returnOrder = async (req, res) => {
     order.orderStatus = "RETURN_REQUESTED";
     order.returnReason = reason;
     await order.save();
+    
+    // 📢 Trigger notification for store owner
+    const user = await User.findById(userId);
+    if (user && user.ownerId) {
+      createOwnerNotification({
+        ownerId: user.ownerId,
+        type: "RETURN_REQUESTED",
+        title: "Order Return Requested",
+        message: `A return has been requested for order ${order.orderNumber}. Reason: ${reason}`,
+        orderId: order._id
+      });
+    }
 
     res.status(200).json({ data: order, message: "Return requested successfully", success: true });
   } catch (error) {
@@ -851,6 +875,18 @@ export const cancelOrder = async (req, res) => {
     }
 
     await order.save();
+
+    // 📢 Trigger notification for store owner
+    const user = await User.findById(userId);
+    if (user && user.ownerId) {
+      createOwnerNotification({
+        ownerId: user.ownerId,
+        type: "ORDER_CANCELLED",
+        title: "Order Cancelled by Customer",
+        message: `Order ${order.orderNumber} has been cancelled by the customer. Reason: ${reason || "Not specified"}`,
+        orderId: order._id
+      });
+    }
 
     return res.status(200).json({
       data: order,
@@ -969,6 +1005,15 @@ export const verifyAndProcessPayment = async (req, res) => {
     if (razorpay_payment_id) order.razorpayPaymentId = razorpay_payment_id;
     if (razorpay_signature) order.razorpaySignature = razorpay_signature;
     await order.save();
+
+    // 📢 Trigger notification for store owner
+    createOwnerNotification({
+      ownerId: order.ownerId || ownerId, // Use resolved ownerId
+      type: "NEW_ORDER",
+      title: "New Paid Order Received",
+      message: `You have a new paid order ${order.orderNumber} for ₹${order.totalAmount}`,
+      orderId: order._id
+    });
 
     res.status(200).json({
       success: true,

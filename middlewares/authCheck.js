@@ -1,6 +1,6 @@
 import User from "../model/usersModel.js";
 import Owner from "../model/OwnerModels.js";
-import Admin from "../model/AdminModel.js";
+
 
 // Basic authentication check - verifies JWT token and sets user info
 export const checkAuth = async (req, res, next) => {
@@ -42,15 +42,7 @@ export const checkAuth = async (req, res, next) => {
     }
 
     // If user type is not recognized, fall back to database lookup for backward compatibility
-    // First check if it's an admin
-    const admin = await Admin.findById(userId);
-    if (admin) {
-      req.isAdmin = true;
-      req.isOwner = false;
-      req.isUser = false;
-      req.adminId = userId;
-      return next();
-    }
+    
 
     // Then check if it's an owner
     const owner = await Owner.findById(userId);

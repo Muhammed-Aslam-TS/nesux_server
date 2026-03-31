@@ -1,24 +1,19 @@
-
-
 import { Router } from 'express';
 import { verifyAccessToken } from '../../middlewares/JWT.js';
-import { requireOwnerOrAdmin } from '../../middlewares/authCheck.js';
+import { requireOwner } from '../../middlewares/authCheck.js';
 import { createProduct, getAllProducts, getProductById, hardDeleteProduct, softDeleteProduct, updateProduct } from '../../controllers/owner/productController.js';
-import reviewRouter from '../user/reviewRouter.js';
 import upload from '../../middlewares/upload.js';
 
 const Productrouter = Router();
 
-// Nested route for reviews
-
-// All product routes require authentication (owner or admin)
+// All owner product routes require authentication
 Productrouter.use(verifyAccessToken);
-Productrouter.use(requireOwnerOrAdmin);
+Productrouter.use(requireOwner);
 
 // Get all products
 Productrouter.get('/', getAllProducts);
 
-// Create a product with multiple images
+// Create and update products
 Productrouter.post("/", upload.any(), createProduct);
 Productrouter.put("/:id", upload.any(), updateProduct);
 Productrouter.delete("/:id", hardDeleteProduct);

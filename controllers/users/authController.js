@@ -131,8 +131,7 @@ export const createUser = async (req, res) => {
 };
 
 
-// Import Admin model
-import Admin from "../../model/AdminModel.js";
+
 
 export const userLogin = async (req, res) => {
   try {
@@ -149,14 +148,7 @@ export const userLogin = async (req, res) => {
     let account = await User.findOne({ email });
     let accountType = 'user';
 
-    // If not found in User, check Admin
-    if (!account) {
-      const admin = await Admin.findOne({ email });
-      if (admin) {
-        account = admin;
-        accountType = admin.role === 'super_admin' ? 'super_admin' : 'admin';
-      }
-    }
+    
 
     // If still not found
     if (!account) {

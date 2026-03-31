@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import twilio from "twilio";
+import OwnerNotification from "../model/ownerNotificationModel.js";
 
 dotenv.config();
 
@@ -138,12 +139,30 @@ export async function sendOrderNotifications({
 }
 
 
+export async function createOwnerNotification({ ownerId, type, title, message, orderId }) {
+  try {
+    const notification = new OwnerNotification({
+      ownerId,
+      type,
+      title,
+      message,
+      orderId,
+    });
+    await notification.save();
+    return { success: true, notification };
+  } catch (err) {
+    console.error("❌ Error creating owner notification:", err);
+    return { success: false, error: err.message };
+  }
+}
+
 export default {
   sendSMS,
   sendWhatsApp,
   sendEmail,
   sendOrderNotifications,
   buildOrderMessage,
+  createOwnerNotification,
 };
 
 
