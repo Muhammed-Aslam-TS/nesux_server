@@ -23,8 +23,9 @@ export const tenantMiddleware = async (req, res, next) => {
       // --- Shopify-style Primary Domain Redirection ---
       const primaryDomain = owner.primaryDomain;
       const isLocal = hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.startsWith('127.');
+      const isApiRequest = req.originalUrl.startsWith('/api');
 
-      if (!isLocal && primaryDomain && hostname !== primaryDomain && hostname !== `www.${primaryDomain}`) {
+      if (!isLocal && !isApiRequest && primaryDomain && hostname !== primaryDomain && hostname !== `www.${primaryDomain}`) {
           const protocol = req.protocol || 'https';
           return res.redirect(301, `${protocol}://${primaryDomain}${req.originalUrl}`);
       }
