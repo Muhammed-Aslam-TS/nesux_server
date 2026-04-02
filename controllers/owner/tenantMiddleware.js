@@ -14,12 +14,21 @@ export const tenantMiddleware = async (req, res, next) => {
     }
 
     // 1. Try to find the owner in DB
-    // We try looking up localhost too, in case the user registered it
     let owner = await Owner.findByHost(hostname);
 
     if (owner) {
       req.owner = owner;
       res.locals.owner = owner;
+
+      // --- Shopify-style Primary Domain Redirection ---
+      const primaryDomain = owner.primaryDomain;
+      const isLocal = hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.startsWith('127.');
+
+      if (!isLocal && primaryDomain && hostname !== primaryDomain && hostname !== `www.${primaryDomain}`) {
+          const protocol = req.protocol || 'https';
+          return res.redirect(301, `${protocol}://${primaryDomain}${req.originalUrl}`);
+      }
+
       return next();
     }
 

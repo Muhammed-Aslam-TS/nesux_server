@@ -504,7 +504,23 @@ const getDomainSettings = asyncHandler(async (req, res) => {
     { name: "www", ttl: 3600, type: "CNAME", value: CNAME_TARGET },
   ];
 
-  const defaultDomain = `${owner.username}.${BASE_DOMAIN}`;
+  // Derive default domain from current host (e.g. ashif.localhost OR ashif.nexus.tasel.in)
+  const currentHost = req.get('host').split(':')[0].toLowerCase();
+  let currentBaseDomain = BASE_DOMAIN;
+
+  const devBaseDomains = ["localhost", "127.0.0.1", "test.store"];
+  for (const devBase of devBaseDomains) {
+      if (currentHost.endsWith(devBase)) {
+          // If accessing via e.g. store.localhost, the base is localhost
+          // If accessing via e.g. ashif.test.store, the base is test.store
+          const parts = currentHost.split('.');
+          if (parts.length > devBase.split('.').length) {
+              currentBaseDomain = devBase;
+          }
+      }
+  }
+
+  const defaultDomain = `${owner.username}.${currentBaseDomain}`;
 
   return res.status(200).json(
     new ApiResponse(200, { defaultDomain, dnsRecords, domains }, "Domain settings retrieved successfully.")

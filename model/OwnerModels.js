@@ -269,9 +269,19 @@ OwnerSchema.statics.findByHost = function (host) {
   
   const queries = [{ primaryDomain: cleanHost }, { storeDomains: cleanHost }];
 
+  // 1. Try resolving via configured BASE_DOMAIN
   if (cleanHost.endsWith(`.${BASE_DOMAIN}`)) {
     const username = cleanHost.slice(0, -(`.${BASE_DOMAIN}`.length));
     if (username) queries.push({ username });
+  }
+
+  // 2. Fallback for local development (supports ashif.localhost, ashif.127.0.0.1, etc.)
+  const devBaseDomains = ["localhost", "127.0.0.1", "test.store"];
+  for (const devBase of devBaseDomains) {
+    if (cleanHost.endsWith(`.${devBase}`)) {
+      const username = cleanHost.slice(0, -(`.${devBase}`.length));
+      if (username) queries.push({ username });
+    }
   }
 
   return this.findOne({
