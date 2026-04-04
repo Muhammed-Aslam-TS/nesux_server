@@ -10,10 +10,10 @@ const CategoryRoutes = express.Router();
 CategoryRoutes.use(verifyAccessToken);
 CategoryRoutes.use(requireOwnerOrAdmin);
 
-CategoryRoutes.get("/", getAllCategories);
-CategoryRoutes.post("/", upload.single("image"), createCategory);
-CategoryRoutes.get("/:id", getCategoryById);
-CategoryRoutes.put("/:id", upload.single("image"), updateCategory);
+CategoryRoutes.get("/categories", getAllCategories);
+CategoryRoutes.post("/categories", upload.single("image"), createCategory);
+CategoryRoutes.get("/categories/:id", getCategoryById);
+CategoryRoutes.put("/categories/:id", upload.single("image"), updateCategory);
 
 // Delete a category
 CategoryRoutes.delete("/:id", deleteCategory);

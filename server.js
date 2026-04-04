@@ -65,6 +65,11 @@ import { processScheduledNotifications } from "./controllers/users/notificationC
 import cleanupExpiredOffers from "./scripts/cleanupExpiredOffers.js";
 import checkSubscriptionExpirations from "./scripts/checkSubscriptions.js";
 import { seedSubscriptionPlans } from "./model/subscriptionPlans.js";
+import CategoryRoutes from "./routes/owners/categoryRouter.js";
+import ownerOfferRouter from "./routes/owners/offerRouter.js";
+import ownerCouponRouter from "./routes/owners/couponRouter.js";
+
+
 
 // import addonRouter from "./routes/owners/addonRouter.js";
 
@@ -449,6 +454,8 @@ app.use("/api/orders", ordersRouter);
 app.use("/api/banners", userBannerRouter);
 app.use("/api/reviews", reviewRouter);
 app.use("/api/coupon", couponUserRouter);
+app.use("/api/coupons", ownerCouponRouter);
+
 app.use("/api/getaddon", addonUserRouter);
 app.use("/api/notifications", notificationRouter);
 
@@ -470,6 +477,10 @@ app.use("/api/owner/videos", ownerVideoRouter);
 app.use("/api/owner/testimonials", ownerTestimonialRouter);
 app.use("/api/owner/partners", ownerPartnerRouter);
 app.use("/api/shiprocket", shiprocketRoutes);
+app.use("/api/owner/offers", ownerOfferRouter);
+app.use("/api/owner", CategoryRoutes);
+
+
 
 // Moved to admin_server
 
