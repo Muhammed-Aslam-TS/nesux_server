@@ -63,7 +63,13 @@ const compressImage = async (buffer) => {
 
 export const getAllProducts = async (req, res) => {
   try {
-    const products = await Product.find({ ownerId: req.user.id }).populate(
+    const ownerId = getOwnerId(req);
+    
+    if (!ownerId) {
+      return res.status(404).json({ success: false, message: "Store not found" });
+    }
+
+    const products = await Product.find({ ownerId }).populate(
       "category",
       "categoryName"
     );

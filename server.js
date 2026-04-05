@@ -12,7 +12,6 @@ import { tenantMiddleware } from "./controllers/owner/tenantMiddleware.js";
 
 // import { tenantResolver } from "./middlewares/tenantResolver.js";
 
-import categoryRoutes from "./routes/owners/categoryRouter.js";
 import authRouter from "./routes/user/authRouter.js";
 import cartRouter from "./routes/user/cartRouter.js";
 import userProductRouter from "./routes/user/UserProductrouter.js";
@@ -77,217 +76,8 @@ import ownerCouponRouter from "./routes/owners/couponRouter.js";
 // dotenv.config();
 // connectDB();
 
-// // const allowedOrigin = [
-// //   "http://localhost:5173",
-// //   "http://localhost:5174",
-// //   /\.test\.store(:\d+)?$/, // regex to allow any *.test.store domain
-// // ];
 
-// const allowedBaseDomains = [
-//   'localhost',
-//   '127.0.0.1',
-//   'test.store',
-//   'darkpepper.test.store',
-// ];
-
-
-// const app = express();
-
-// const __filename = fileURLToPath(import.meta.url);
-// const __dirname = path.dirname(__filename);
-
-// app.use(
-//   cors({
-//     origin: allowedOrigin,
-//     methods: ["GET", "POST", "PUT", "DELETE"],
-//     allowedHeaders: ['Content-Type', 'Authorization']
-//   })
-// );
-
-
-
-// // 👇 Dynamic CORS resolver
-// const corsOptions = {
-//   origin: async (origin, callback) => {
-//     if (!origin) return callback(null, true);
-
-//     const url = new URL(origin);
-//     const hostname = url.hostname;
-
-//     // Allow local/dev
-//     if (hostname.endsWith('.test.store') || hostname === 'localhost') {
-//       return callback(null, true);
-//     }
-
-//     // Check DB if hostname belongs to any owner
-//     const exists = await Owner.exists({
-//       $or: [
-//         { primaryDomain: hostname },
-//         { storeDomains: hostname }
-//       ]
-//     });
-
-//     if (exists) return callback(null, true);
-
-//     console.warn(`🚫 CORS blocked (not registered domain): ${origin}`);
-//     return callback(new Error('Not allowed by CORS'));
-//   },
-//   credentials: true,
-// };
-
-
-
-// app.use(express.json({ limit: '50mb' }));
-// app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-// app.use(express.json());
-
-// // Tenant resolver: set req.owner (resolved by request Host) and res.locals.owner
-// app.use(tenantMiddleware);
-
-// // After tenantResolver middleware
-// app.use(async (req, res, next) => {
-//   if (req.owner) {
-//     const ownerDist = path.join(__dirname, `uploads/owner-assets/${req.owner._id}/dist`);
-
-//     if (fs.existsSync(path.join(ownerDist, 'index.html'))) {
-//       app.use(express.static(ownerDist));
-//       return res.sendFile(path.join(ownerDist, 'index.html'));
-//     }
-//   }
-//   next();
-// });
-
-// // Static files
-// app.use("/uploads", expressStatic(path.join(__dirname, "uploads")));
-
-// // Dist folder paths
-// const distPaths = {
-//   owner: path.join(__dirname, "./distOwner"),
-//   admin: path.join(__dirname, "./distAdmin"),
-//   default: path.join(__dirname, "./dist") // Default to owner app
-// };
-
-// // Check which dist folders exist and serve them
-// const availableRoutes = {};
-
-// // Check owner dist
-// if (fs.existsSync(distPaths.owner) && fs.existsSync(path.join(distPaths.owner, 'index.html'))) {
-//   app.use("/owner", expressStatic(distPaths.owner));
-//   availableRoutes.owner = {
-//     name: 'EcommerceByowner',
-//     path: '/owner',
-//     distPath: distPaths.owner,
-//     status: '✅ Ready'
-//   };
-//   console.log(`📁 Serving EcommerceByowner from: ${distPaths.owner}`);
-// }
-
-// // Check admin dist
-// if (fs.existsSync(distPaths.admin) && fs.existsSync(path.join(distPaths.admin, 'index.html'))) {
-//   app.use("/admin", expressStatic(distPaths.admin));
-//   availableRoutes.admin = {
-//     name: 'EcommerceByAdmin',
-//     path: '/admin',
-//     distPath: distPaths.admin,
-//     status: '✅ Ready'
-//   };
-//   console.log(`📁 Serving EcommerceByAdmin from: ${distPaths.admin}`);
-// }
-
-// // Check default dist
-// if (fs.existsSync(distPaths.default) && fs.existsSync(path.join(distPaths.default, 'index.html'))) {
-//   app.use("/", expressStatic(distPaths.default));
-//   availableRoutes.default = {
-//     name: 'Default',
-//     path: '/',
-//     distPath: distPaths.default,
-//     status: '✅ Ready'
-//   };
-//   console.log(`📁 Serving Default from: ${distPaths.default}`);
-// }
-
-// // API Routes - Only basic routes for now
-// app.use("/api/outhenticate", outhRouter);
-// app.use("/api/shiprocket", shiprocketRoutes);
-
-// // Admin routes (with authentication built into each route)
-// app.use("/api/admin", adminRoutes);
-// app.use("/api/owners", ownersRoutes);
-// app.use('/api/ExpiredOffers', ExpiredOffersRoutes);
-// app.use("/api/userProducts", UserProductrouter);
-
-// // Routes for admin (with authentication built into each route)
-// app.use("/api/subscriptions", Subscriptionsrouter);
-// app.use("/api/products", Productrouter);
-// app.use("/api/owner/info", ownerInfoRouter);
-// app.use("/api/user", UserbyProfile);
-
-// app.use("/api/coupons", couponRoutes);
-// app.use("/api/cart", cartRouter);
-// app.use("/api/wishlist", wishlistRoutes);
-// app.use("/api/offers", offerRoutes);
-// app.use("/api/categories", CategoryRoutes);
-// app.use("/api/categoriesByUser", CategoryByUsersRoutes);
-// app.use("/api/users", UserRouter);
-// app.use("/api/getOwnerByReferralCode", OwnerByReferralCode);
-// app.use("/api/getProductById", UserProductrouter);
-// app.use("/api/addresses", AddressesRouter);
-// app.use("/api/orders", OrdersRouter);
-
-// app.use("/api/owner/orders", OwnerOrdersRouter);
-// app.use("/api/razorpayOrder", paymentRoutes);
-// app.use("/api/dashBoardDtas", dashboardRouter);
-// app.use("/api/owner/dashboard", ownerDashboardRouter);
-
-// // Handle SPA routing for each app
-// app.get('/owner/*', (req, res) => {
-//   if (availableRoutes.owner) {
-//     res.sendFile(path.join(availableRoutes.owner.distPath, 'index.html'));
-//   } else {
-//     res.status(404).json({ message: 'Owner app not found' });
-//   }
-// });
-
-// app.get('/admin/*', (req, res) => {
-//   if (availableRoutes.admin) {
-//     res.sendFile(path.join(availableRoutes.admin.distPath, 'index.html'));
-//   } else {
-//     res.status(404).json({ message: 'Admin app not found' });
-//   }
-// });
-
-// // Simple catch-all for non-API routes
-// app.get('*', (req, res) => {
-//   if (!req.path.startsWith('/api/')) {
-//     const defaultRoute = availableRoutes.default;
-//     if (defaultRoute) {
-//       res.sendFile(path.join(defaultRoute.distPath, 'index.html'));
-//     } else {
-//       res.status(404).json({ 
-//         message: 'Frontend not found. Please build your frontend application.',
-//         availableRoutes: Object.keys(availableRoutes)
-//       });
-//     }
-//   }
-// });
-
-// // Start server
-// const PORT = process.env.PORT || 5000;
-// app.listen(PORT, () => {
-//   console.log(`🚀 Server running on port ${PORT}`);
-//   console.log(`📁 Dist folder status:`);
-//   Object.entries(distPaths).forEach(([key, distPath]) => {
-//     const exists = fs.existsSync(distPath);
-//     const indexExists = fs.existsSync(path.join(distPath, 'index.html'));
-//     const status = exists && indexExists ? '✅ Ready' : exists ? '⚠️ No index.html' : '❌ Not found';
-//     console.log(`   ${key}: ${status} - ${distPath}`);
-//   });
-//   console.log(`🌐 Available frontend routes:`);
-//   Object.entries(availableRoutes).forEach(([key, route]) => {
-//     console.log(`   ${route.name}: http://localhost:${PORT}${route.path}`);
-//   });
-//   console.log(`🔗 API Base URL: http://localhost:${PORT}/api`);
-// });
+// server startup and setup...
 
 
 
@@ -328,71 +118,76 @@ const domainCache = new Map();
 const CACHE_TTL = 300000; // 5 minutes
 
 const corsOptions = {
-  origin: async (origin, callback) => {
+  origin: (origin, callback) => {
+    // 1. Allow internal requests (no origin)
     if (!origin) {
       return callback(null, true);
     }
 
-    const url = new URL(origin);
-    const hostname = url.hostname;
-
-    // 1. Whitelist for development
-    const allowedPatterns = [
-      /^https?:\/\/localhost(:\d+)?$/,
-      /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
-      /^https?:\/\/.*\.localhost(:\d+)?$/,
-      /^https?:\/\/.*\.test\.store(:\d+)?$/,
-      /^https?:\/\/.*\.a(:\d+)?$/,
-      /^https?:\/\/98\.130\.142\.128(:\d+)?$/,
-      /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/
-    ];
-    
-    if (allowedPatterns.some((pattern) => pattern.test(origin))) {
-      return callback(null, true);
-    }
-
-    // 2. Check Cache
-    const cached = domainCache.get(hostname);
-    if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
-      if (cached.allowed) return callback(null, true);
-      else return callback(new Error("Not allowed by CORS"));
-    }
-
-    // 3. Platform domain check
-    const BASE_DOMAIN = process.env.BASE_DOMAIN || "tasel.in";
-    if (hostname === BASE_DOMAIN || hostname === `www.${BASE_DOMAIN}`) {
-      domainCache.set(hostname, { allowed: true, timestamp: Date.now() });
-      return callback(null, true);
-    }
-
-    // 4. Database check
     try {
+      const url = new URL(origin);
+      const hostname = url.hostname;
+
+      // 1. Whitelist for development
+      const allowedPatterns = [
+        /^https?:\/\/localhost(:\d+)?$/,
+        /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+        /^https?:\/\/.*\.localhost(:\d+)?$/,
+        /^https?:\/\/.*\.test\.store(:\d+)?$/,
+        /^https?:\/\/.*\.a(:\d+)?$/,
+        /^https?:\/\/98\.130\.142\.128(:\d+)?$/,
+        /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/
+      ];
+      
+      if (allowedPatterns.some((pattern) => pattern.test(origin))) {
+        return callback(null, true);
+      }
+
+      // 2. Check Cache
+      const cached = domainCache.get(hostname);
+      if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+        if (cached.allowed) return callback(null, true);
+        else return callback(new Error("Not allowed by CORS"));
+      }
+
+      // 3. Platform domain check
+      const BASE_DOMAIN = process.env.BASE_DOMAIN || "tasel.in";
+      if (hostname === BASE_DOMAIN || hostname === `www.${BASE_DOMAIN}`) {
+        domainCache.set(hostname, { allowed: true, timestamp: Date.now() });
+        return callback(null, true);
+      }
+
+      // 4. Database check
       const queries = [{ primaryDomain: hostname }, { storeDomains: hostname }];
       if (hostname.endsWith(`.${BASE_DOMAIN}`)) {
         const username = hostname.slice(0, -(`.${BASE_DOMAIN}`.length));
         if (username) queries.push({ username });
       }
 
-      const ownerExists = await Owner.exists({ $or: queries });
-
-      domainCache.set(hostname, { allowed: !!ownerExists, timestamp: Date.now() });
-
-      if (ownerExists) {
-        return callback(null, true);
-      } else {
-        console.error(`❌ Blocked by CORS: The domain "${hostname}" is not registered.`);
-        return callback(new Error("Not allowed by CORS"));
-      }
+      // Use .then() to keep the function synchronous for the cors middleware
+      Owner.exists({ $or: queries })
+        .then(ownerExists => {
+          domainCache.set(hostname, { allowed: !!ownerExists, timestamp: Date.now() });
+          if (ownerExists) {
+            return callback(null, true);
+          } else {
+            console.error(`❌ Blocked by CORS: The domain "${hostname}" is not registered.`);
+            return callback(new Error("Not allowed by CORS"));
+          }
+        })
+        .catch(err => {
+          console.error("CORS check error:", err);
+          // Fallback: allow but don't cache on error to ensure availability
+          callback(null, true);
+        });
     } catch (err) {
-      console.error("CORS check error:", err);
-      // Fallback: allow but don't cache on error to be safe or fail closed? 
-      // Let's allow and not cache so we can retry DB later.
-      return callback(null, true);
+      console.error("CORS pre-check error:", err);
+      callback(null, true);
     }
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
   exposedHeaders: ["Content-Length", "X-Kuma-Revision", "x-owner-resolved"],
 };
 
@@ -559,12 +354,22 @@ app.use((err, req, res, next) => {
   const statusCode = err.statusCode || 500;
   const message = err.message || "Internal Server Error";
   
-  console.error(`[Error] ${req.method} ${req.originalUrl}:`, err);
+  // Detailed error logging
+  console.error(`[Fatal Error] ${req.method} ${req.originalUrl} - Status: ${statusCode}`);
+  console.error(`  - Name: ${err.name}`);
+  console.error(`  - Message: ${message}`);
+  // If no stack exists but it's a 500, log the error object itself
+  if (err.stack) {
+    console.error(`  - Stack: ${err.stack.split('\n')[1].trim()}`); // Log the first line of the stack trace for brevity
+  } else {
+    console.error("  - Details:", err);
+  }
 
   res.status(statusCode).json({
     success: false,
     message: message,
     stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    errorType: err.name,
     errors: err.errors || []
   });
 });
