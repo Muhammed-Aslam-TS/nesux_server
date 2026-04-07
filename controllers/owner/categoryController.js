@@ -6,55 +6,68 @@ import { v4 as uuidv4 } from "uuid";
 import User from "../../model/usersModel.js";
 import Product from "../../model/product.js";
 
+import mongoose from "mongoose";
+
 // Create a new category
 export const createCategory = async (req, res) => {
+  console.log(`[Category] Starting creation...`);
   try {
-    // Support both owner auth (req.user.id) and admin-acting-as-owner (req.ownerId)
-    const ownerId = req.user?.id || req.ownerId;
-
-    if (!ownerId) {
-      return res.status(401).json({ message: "Unauthorized: owner identity could not be determined." });
+    // Standardized owner resolution (handles domain + auth context)
+    const ownerIdRaw = getOwnerId(req);
+    
+    if (!ownerIdRaw) {
+      console.warn(`[Category] Failed: Owner ID could not be resolved from request.`);
+      return res.status(401).json({ message: "Store identity could not be verified." });
     }
+
+    // Explicitly cast to ObjectId to ensure database compatibility
+    const ownerId = new mongoose.Types.ObjectId(ownerIdRaw);
+    console.log(`[Category] Resolved Owner ID: ${ownerId}`);
 
     const { categoryName } = req.body;
     const imageFile = req.file;
 
     if (!categoryName || !imageFile) {
-      return res
-        .status(400)
-        .json({ message: "Category name and image are required." });
+      return res.status(400).json({ message: "Category name and image are required." });
     }
 
     // Check for duplicate category
     const existingCategory = await Category.findOne({
-      categoryName: categoryName,
+      categoryName: categoryName.trim(),
       ownerId,
     });
+
     if (existingCategory) {
+      console.log(`[Category] Duplicate blocked: ${categoryName} already exists for ${ownerId}`);
       return res.status(409).json({ message: "Category already exists." });
     }
 
     const buffer = imageFile.buffer;
+    const fileName = `${uuidv4()}-${imageFile.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
 
-    // Upload with Fallback (S3 -> Local)
-    const fileName = `${uuidv4()}-${imageFile.originalname}`;
+    console.log(`[Category] Attempting file save for: ${fileName}`);
+    // This will try S3 first, then local fallback
     const downloadURL = await saveFile(buffer, 'categories', fileName);
+
+    console.log(`[Category] File saved at: ${downloadURL}. Now saving to DB...`);
 
     // Save new category
     const newCategory = new Category({
-      categoryName: categoryName,
+      categoryName: categoryName.trim(),
       image: downloadURL,
       ownerId,
     });
 
     const categoryData = await newCategory.save();
-
+    
+    console.log(`[Category] Creation successful! ID: ${categoryData._id}`);
     res.status(201).json(categoryData);
   } catch (error) {
-    console.error("Category creation error:", error);
+    console.error("❌ Category creation FATAL error:", error);
     res.status(500).json({ 
-      message: error.message,
-      detail: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+      message: "Internal server error while creating category",
+      error: error.message,
+      debug: process.env.NODE_ENV !== 'production' ? error.stack : undefined
     });
   }
 };
@@ -100,37 +113,51 @@ export const getCategoryById = async (req, res) => {
 
 // Update a category
 export const updateCategory = async (req, res) => {
+  console.log(`[Category] Starting update for ID: ${req.params.id}...`);
   try {
     const { id } = req.params;
     const { categoryName, description } = req.body;
     const imageFile = req.file;
+
+    // Basic ID validation
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid category ID format." });
+    }
 
     const category = await Category.findById(id);
     if (!category) {
       return res.status(404).json({ message: "Category not found" });
     }
 
-    if (categoryName) category.categoryName = categoryName;
-    if (description) category.description = description;
+    if (categoryName) category.categoryName = categoryName.trim();
+    if (description) category.description = description.trim();
 
     // Handle image update (if a new file is uploaded)
     if (imageFile) {
       const buffer = imageFile.buffer;
-
-      // Upload with Fallback (Firebase -> Local)
-      const fileName = `${uuidv4()}-${imageFile.originalname}`;
+      const fileName = `${uuidv4()}-${imageFile.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
       
+      console.log(`[Category] New image uploaded. Deleting old image if it exists...`);
       // Delete old image if it exists
       if (category.image) {
-        await deleteFromFirebase(category.image);
+        try {
+          await deleteFile(category.image);
+        } catch (delError) {
+          console.warn(`[Category] Old image deletion failed (non-blocking):`, delError.message);
+        }
       }
       category.image = await saveFile(buffer, 'categories', fileName);
     }
 
     const updatedCategory = await category.save();
+    console.log(`[Category] Update successful!`);
     res.json(updatedCategory);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("❌ Category update error:", error);
+    res.status(500).json({ 
+      message: "Internal server error while updating category",
+      error: error.message 
+    });
   }
 };
 

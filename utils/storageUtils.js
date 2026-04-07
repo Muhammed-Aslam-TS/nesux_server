@@ -8,14 +8,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Resolve the root uploads directory relative to this file (utils/ -> ../uploads/)
-const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
+// We use path.resolve for reliability across different environments
+const UPLOADS_DIR = path.resolve(__dirname, '..', 'uploads');
 
 let s3Client;
 
 const getS3Client = () => {
   if (s3Client) return s3Client;
 
-  const isPlaceholder = (val) => !val || val.includes('your_') || val.includes('<your');
+  const isPlaceholder = (val) => !val || val.includes('your_') || val.includes('<your') || val === '';
 
   const hasValidConfig = !(
     isPlaceholder(process.env.AWS_REGION) ||
@@ -25,19 +26,25 @@ const getS3Client = () => {
   );
 
   if (!hasValidConfig) {
-    console.error("❌ CRITICAL: AWS S3 environment variables are not correctly configured in .env file.");
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn("⚠️ AWS S3 environment variables are not fully configured. Using local storage as primary.");
+    }
     return null;
   }
 
-  s3Client = new S3Client({
-    region: process.env.AWS_REGION || 'ap-south-2',
-    credentials: {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    },
-  });
-
-  return s3Client;
+  try {
+    s3Client = new S3Client({
+      region: process.env.AWS_REGION || 'ap-south-2',
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      },
+    });
+    return s3Client;
+  } catch (err) {
+    console.error("❌ Failed to initialize S3 Client:", err.message);
+    return null;
+  }
 };
 
 /**
@@ -45,16 +52,27 @@ const getS3Client = () => {
  * Files are served from /uploads/<subFolder>/<fileName>
  */
 const saveFileLocally = (buffer, subFolder = '', originalName = 'file.jpg') => {
-  const extension = originalName.split('.').pop() || 'jpg';
-  const fileName = `${uuidv4()}-${originalName.replace(/\.[^/.]+$/, "")}.${extension}`;
-  const dir = subFolder ? path.join(UPLOADS_DIR, subFolder) : UPLOADS_DIR;
-  fs.mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, fileName);
-  fs.writeFileSync(filePath, buffer);
-  // Return a URL path that will be served by Express static middleware
-  const urlPath = subFolder ? `/uploads/${subFolder}/${fileName}` : `/uploads/${fileName}`;
-  console.log(`[Storage] Local file saved: ${urlPath}`);
-  return urlPath;
+  try {
+    const extension = originalName.split('.').pop() || 'jpg';
+    const fileName = `${uuidv4()}-${originalName.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9.-]/g, '_')}.${extension}`;
+    
+    // Ensure the directory exists
+    const dir = subFolder ? path.join(UPLOADS_DIR, subFolder) : UPLOADS_DIR;
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const filePath = path.join(dir, fileName);
+    fs.writeFileSync(filePath, buffer);
+    
+    // Return a URL path that will be served by Express static middleware
+    const urlPath = subFolder ? `/uploads/${subFolder}/${fileName}` : `/uploads/${fileName}`;
+    console.log(`[Storage] Local file saved: ${urlPath}`);
+    return urlPath;
+  } catch (error) {
+    console.error(`[Storage] Error in saveFileLocally:`, error.message);
+    throw error;
+  }
 };
 
 /**
@@ -108,29 +126,42 @@ export const deleteFile = async (fileUrl) => {
 
     // Local file (path starting with /uploads/)
     if (fileUrl.startsWith('/uploads/')) {
-      const localPath = path.join(__dirname, '..', fileUrl);
+      // Remove leading slash if present for path.join
+      const relativePath = fileUrl.startsWith('/') ? fileUrl.substring(1) : fileUrl;
+      // We need to resolve from the project root. Since UPLOADS_DIR is root/uploads,
+      // and relativePath is uploads/sub/file, we go up one level from uploads.
+      const localPath = path.join(UPLOADS_DIR, '..', relativePath);
+      
       if (fs.existsSync(localPath)) {
         fs.unlinkSync(localPath);
         console.log(`[Storage] Deleted local file: ${localPath}`);
+      } else {
+        console.warn(`[Storage] Local file not found for deletion: ${localPath}`);
       }
       return;
     }
 
     // S3 file
-    const s3Domain = `https://${process.env.AWS_S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/`;
+    const bucket = process.env.AWS_S3_BUCKET_NAME;
+    const region = process.env.AWS_REGION;
+    const s3Domain = `https://${bucket}.s3.${region}.amazonaws.com/`;
+    
     if (fileUrl.startsWith(s3Domain)) {
       const key = fileUrl.replace(s3Domain, '');
       const client = getS3Client();
-      if (!client) return;
+      if (!client) {
+        console.warn(`[Storage] Cannot delete S3 file: S3 client not configured.`);
+        return;
+      }
       const command = new DeleteObjectCommand({
-        Bucket: process.env.AWS_S3_BUCKET_NAME,
+        Bucket: bucket,
         Key: key,
       });
       await client.send(command);
       console.log(`[Storage] Deleted file from AWS S3: ${key}`);
     }
   } catch (error) {
-    console.error("[Storage] Error deleting file:", error);
+    console.error("[Storage] Error deleting file:", error.message);
   }
 };
 
