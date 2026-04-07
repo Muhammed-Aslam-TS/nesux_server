@@ -43,11 +43,25 @@ export const createCategory = async (req, res) => {
     }
 
     const buffer = imageFile.buffer;
+    if (!buffer) {
+       console.error(`[Category] Buffer is missing from request.file!`);
+       return res.status(400).json({ message: "Invalid image upload. File buffer is missing." });
+    }
+
     const fileName = `${uuidv4()}-${imageFile.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
 
     console.log(`[Category] Attempting file save for: ${fileName}`);
     // This will try S3 first, then local fallback
-    const downloadURL = await saveFile(buffer, 'categories', fileName);
+    let downloadURL;
+    try {
+      downloadURL = await saveFile(buffer, 'categories', fileName);
+    } catch (storageErr) {
+      console.error(`[Category] Storage fatal error:`, storageErr);
+      return res.status(500).json({ 
+        message: "Failed to save category image.", 
+        error: storageErr.message 
+      });
+    }
 
     console.log(`[Category] File saved at: ${downloadURL}. Now saving to DB...`);
 
@@ -67,6 +81,7 @@ export const createCategory = async (req, res) => {
     res.status(500).json({ 
       message: "Internal server error while creating category",
       error: error.message,
+      errorType: error.name,
       debug: process.env.NODE_ENV !== 'production' ? error.stack : undefined
     });
   }
@@ -156,7 +171,8 @@ export const updateCategory = async (req, res) => {
     console.error("❌ Category update error:", error);
     res.status(500).json({ 
       message: "Internal server error while updating category",
-      error: error.message 
+      error: error.message,
+      errorType: error.name
     });
   }
 };
