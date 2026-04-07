@@ -9,7 +9,13 @@ import Product from "../../model/product.js";
 // Create a new category
 export const createCategory = async (req, res) => {
   try {
-    const ownerId = req.user.id;
+    // Support both owner auth (req.user.id) and admin-acting-as-owner (req.ownerId)
+    const ownerId = req.user?.id || req.ownerId;
+
+    if (!ownerId) {
+      return res.status(401).json({ message: "Unauthorized: owner identity could not be determined." });
+    }
+
     const { categoryName } = req.body;
     const imageFile = req.file;
 
@@ -30,7 +36,7 @@ export const createCategory = async (req, res) => {
 
     const buffer = imageFile.buffer;
 
-    // Upload with Fallback (Firebase -> Local)
+    // Upload with Fallback (S3 -> Local)
     const fileName = `${uuidv4()}-${imageFile.originalname}`;
     const downloadURL = await saveFile(buffer, 'categories', fileName);
 
@@ -46,7 +52,10 @@ export const createCategory = async (req, res) => {
     res.status(201).json(categoryData);
   } catch (error) {
     console.error("Category creation error:", error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ 
+      message: error.message,
+      detail: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+    });
   }
 };
 // Get all categories
