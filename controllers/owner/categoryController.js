@@ -1,6 +1,6 @@
 import Category from "../../model/categoryModels.js"; // Correct model
 import { deleteFromFirebase } from "../../middlewares/base64Convert.js";
-import { saveFile } from "../../utils/storageUtils.js";
+import { deleteFile, saveFile } from "../../utils/storageUtils.js";
 import { getOwnerId } from "../../middlewares/getOwnerId.js";
 import { v4 as uuidv4 } from "uuid";
 import User from "../../model/usersModel.js";
@@ -24,7 +24,7 @@ export const createCategory = async (req, res) => {
     const ownerId = new mongoose.Types.ObjectId(ownerIdRaw);
     console.log(`[Category] Resolved Owner ID: ${ownerId}`);
 
-    const { categoryName } = req.body;
+    const { categoryName, description, isTrending } = req.body;
     const imageFile = req.file;
 
     if (!categoryName || !imageFile) {
@@ -68,6 +68,8 @@ export const createCategory = async (req, res) => {
     // Save new category
     const newCategory = new Category({
       categoryName: categoryName.trim(),
+      description: description,
+      isTrending: isTrending === 'true' || isTrending === true,
       image: downloadURL,
       ownerId,
     });
@@ -131,7 +133,7 @@ export const updateCategory = async (req, res) => {
   console.log(`[Category] Starting update for ID: ${req.params.id}...`);
   try {
     const { id } = req.params;
-    const { categoryName, description } = req.body;
+    const { categoryName, description, isTrending } = req.body;
     const imageFile = req.file;
 
     // Basic ID validation
@@ -145,7 +147,8 @@ export const updateCategory = async (req, res) => {
     }
 
     if (categoryName) category.categoryName = categoryName.trim();
-    if (description) category.description = description.trim();
+    if (description !== undefined) category.description = description.trim();
+    if (isTrending !== undefined) category.isTrending = isTrending === 'true' || isTrending === true;
 
     // Handle image update (if a new file is uploaded)
     if (imageFile) {
@@ -186,9 +189,9 @@ export const deleteCategory = async (req, res) => {
       return res.status(404).json({ message: "Category not found" });
     }
 
-    // Delete image from Firebase
+    // Delete image from storage
     if (category.image) {
-      await deleteFromFirebase(category.image);
+      await deleteFile(category.image);
     }
 
     res.status(200).json({ message: "Category deleted" });
