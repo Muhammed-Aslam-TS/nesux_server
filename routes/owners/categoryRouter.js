@@ -13,9 +13,10 @@ CategoryRoutes.use(requireOwnerOrAdmin);
 CategoryRoutes.get("/categories", getAllCategories);
 CategoryRoutes.post("/categories", upload.single("image"), createCategory);
 CategoryRoutes.get("/categories/:id", getCategoryById);
+CategoryRoutes.put("/categories/trending", getPublicTrendingCategories);
 CategoryRoutes.put("/categories/:id", upload.single("image"), updateCategory);
 
 // Delete a category
-CategoryRoutes.delete("/:id", deleteCategory);
+CategoryRoutes.delete("/categories/:id", deleteCategory);
 
 export default CategoryRoutes;
