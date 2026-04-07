@@ -12,18 +12,14 @@ import mongoose from "mongoose";
 export const createCategory = async (req, res) => {
   console.log(`[Category] Starting creation...`);
   try {
-    // Standardized owner resolution (handles domain + auth context)
+    // 1. Resolve Owner ID
     const ownerIdRaw = getOwnerId(req);
-    
     if (!ownerIdRaw) {
-      console.warn(`[Category] Failed: Owner ID could not be resolved from request.`);
+      console.warn(`[Category] Failed: Owner ID could not be resolved.`);
       return res.status(401).json({ message: "Store identity could not be verified." });
     }
 
-    // Explicitly cast to ObjectId to ensure database compatibility
     const ownerId = new mongoose.Types.ObjectId(ownerIdRaw);
-    console.log(`[Category] Resolved Owner ID: ${ownerId}`);
-
     const { categoryName, description, isTrending } = req.body;
     const imageFile = req.file;
 
@@ -31,60 +27,80 @@ export const createCategory = async (req, res) => {
       return res.status(400).json({ message: "Category name and image are required." });
     }
 
-    // Check for duplicate category
+    // 2. Check for duplicates
+    console.log(`[Category] Checking for duplicate: ${categoryName.trim()}`);
     const existingCategory = await Category.findOne({
       categoryName: categoryName.trim(),
       ownerId,
     });
 
     if (existingCategory) {
-      console.log(`[Category] Duplicate blocked: ${categoryName} already exists for ${ownerId}`);
       return res.status(409).json({ message: "Category already exists." });
     }
 
+    // 3. Process File Upload
     const buffer = imageFile.buffer;
     if (!buffer) {
-       console.error(`[Category] Buffer is missing from request.file!`);
-       return res.status(400).json({ message: "Invalid image upload. File buffer is missing." });
+       console.error(`[Category] Buffer is missing!`);
+       return res.status(400).json({ message: "Invalid image upload." });
     }
 
     const fileName = `${uuidv4()}-${imageFile.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-
-    console.log(`[Category] Attempting file save for: ${fileName}`);
-    // This will try S3 first, then local fallback
+    console.log(`[Category] Attempting file save...`);
     let downloadURL;
     try {
       downloadURL = await saveFile(buffer, 'categories', fileName);
     } catch (storageErr) {
-      console.error(`[Category] Storage fatal error:`, storageErr);
+      console.error(`❌ [Category] Storage Error:`, storageErr.message);
+      return res.status(500).json({ message: "File storage failed.", error: storageErr.message });
+    }
+
+    // 4. PRE-SAVE DIAGNOSTICS
+    console.log(`[Category] File saved. Verifying DB status...`);
+    if (mongoose.connection.readyState !== 1) {
+      console.error(`❌ [Category] DB NOT CONNECTED! State: ${mongoose.connection.readyState}`);
+      return res.status(500).json({ message: "Database connection is not ready." });
+    }
+
+    // 5. Instantiation Safety
+    let newCategory;
+    try {
+      if (typeof Category !== 'function') {
+        throw new Error(`Category is not a valid Mongoose model/constructor. Type: ${typeof Category}`);
+      }
+      newCategory = new Category({
+        categoryName: categoryName.trim(),
+        description: description || "",
+        isTrending: isTrending === 'true' || isTrending === true,
+        image: downloadURL,
+        ownerId,
+      });
+    } catch (initErr) {
+      console.error(`❌ [Category] Instantiation Error:`, initErr.message);
+      return res.status(500).json({ message: "Model initialization failed.", error: initErr.message });
+    }
+
+    // 6. Save Safety
+    console.log(`[Category] Everything ready. Attempting DB save for: ${categoryName.trim()}...`);
+    try {
+      const categoryData = await newCategory.save();
+      console.log(`✅ [Category] Save SUCCESS! ID: ${categoryData._id}`);
+      return res.status(201).json(categoryData);
+    } catch (saveErr) {
+      console.error(`❌ [Category] SAVE CRASH:`, saveErr);
       return res.status(500).json({ 
-        message: "Failed to save category image.", 
-        error: storageErr.message 
+        message: "Database save operation failed.", 
+        error: saveErr.message,
+        errorName: saveErr.name
       });
     }
 
-    console.log(`[Category] File saved at: ${downloadURL}. Now saving to DB...`);
-
-    // Save new category
-    const newCategory = new Category({
-      categoryName: categoryName.trim(),
-      description: description,
-      isTrending: isTrending === 'true' || isTrending === true,
-      image: downloadURL,
-      ownerId,
-    });
-
-    const categoryData = await newCategory.save();
-    
-    console.log(`[Category] Creation successful! ID: ${categoryData._id}`);
-    res.status(201).json(categoryData);
   } catch (error) {
-    console.error("❌ Category creation FATAL error:", error);
+    console.error("❌ [Category] Global Catch:", error.message);
     res.status(500).json({ 
-      message: "Internal server error while creating category",
+      message: "Internal server error during category creation",
       error: error.message,
-      errorType: error.name,
-      debug: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+      errorType: error.name
     });
   }
 };
