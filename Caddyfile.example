@@ -1,0 +1,27 @@
+{
+    # Enable On-Demand TLS
+    on_demand_tls {
+        ask http://localhost:5000/api/owner/custom-hostname/check
+    }
+}
+
+# 🌐 Admin Panel
+admin.tasel.in {
+    reverse_proxy localhost:5001
+}
+
+# 🛍️ Multi-Tenant Backend & Custom Domains (owner.tasel.in, testshope.shop, etc.)
+:443 {
+    tls {
+        on_demand
+    }
+    
+    # Proxy to the Node.js backend
+    reverse_proxy localhost:5000
+    
+    # Handle uploads static files
+    handle_path /uploads/* {
+        root * /home/ubuntu/nest_server/uploads/
+        file_server
+    }
+}
