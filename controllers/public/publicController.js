@@ -464,16 +464,24 @@ export const getTheme = async (req, res) => {
 
 export const getPublicOwnerInfo = async (req, res) => {
   try {
-    // console.log(req.body,"______________tttttttttttttttt");
-
     const ownerId = getOwnerId(req);
 
-    const owner = await Owner.findById(ownerId).select("-password"); // Exclude password from response
+    if (!ownerId) {
+      console.warn("getPublicOwnerInfo - No owner resolved for this request");
+      return res.status(200).json({
+        success: true,
+        message: "No owner associated with this domain",
+        data: null
+      });
+    }
+
+    const owner = await Owner.findById(ownerId).select("-password");
 
     if (!owner) {
-      return res.status(404).json({
-        success: false,
-        message: "Owner not found",
+      return res.status(200).json({
+        success: true,
+        message: "Owner not found in database",
+        data: null
       });
     }
 

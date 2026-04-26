@@ -61,14 +61,14 @@ export const getCategoryById = async (req, res) => {
 export const updateCategory = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, image, description } = req.body;
+    const { categoryName, image, description } = req.body;
 
     const category = await Category.findById(id);
     if (!category) {
       return res.status(404).json({ message: "Category not found" });
     }
 
-    category.name = name || category.name;
+    category.categoryName = categoryName || category.categoryName;
     category.image = image || category.image;
     category.description = description || category.description;
 

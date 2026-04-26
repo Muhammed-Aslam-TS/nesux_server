@@ -26,7 +26,13 @@ export const tenantMiddleware = async (req, res, next) => {
 
       // --- Shopify-style Primary Domain Redirection ---
       const primaryDomain = owner.primaryDomain;
-      const isLocal = hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.startsWith('127.');
+      const isLocal = hostname === 'localhost' || 
+                      hostname.endsWith('.localhost') || 
+                      hostname.startsWith('127.') ||
+                      hostname.startsWith('192.168.') ||
+                      hostname.startsWith('10.') ||
+                      hostname.startsWith('172.');
+                      
       const isApiRequest = req.originalUrl.startsWith('/api');
 
       if (!isLocal && !isApiRequest && primaryDomain && hostname !== primaryDomain && hostname !== `www.${primaryDomain}`) {
@@ -52,14 +58,17 @@ export const tenantMiddleware = async (req, res, next) => {
            if (!cachedDefaultOwner) {
                console.log(`[Tenant] Fetching default owner for local development...`);
                cachedDefaultOwner = await Owner.findOne().sort({ createdAt: 1 });
+               if (cachedDefaultOwner) {
+                   console.log(`[Tenant] Default owner cached: ${cachedDefaultOwner.username}`);
+               }
            }
            
            if (cachedDefaultOwner) {
-               console.log(`[Tenant] Default owner resolved: ${cachedDefaultOwner.username}`);
+               console.log(`[Tenant] Resolving request via default owner: ${cachedDefaultOwner.username}`);
                req.owner = cachedDefaultOwner;
                res.locals.owner = cachedDefaultOwner;
            } else {
-               console.warn(`[Tenant] No owners found in database for fallback!`);
+               console.warn(`[Tenant] No owners found in database! Public APIs may return 404.`);
            }
        }
        return next();

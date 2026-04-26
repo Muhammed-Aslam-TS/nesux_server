@@ -5,7 +5,7 @@ const subscriptionPlansSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
-      enum: [ "BASIC", "PREMIUM", "ENTERPRISE"],
+      enum: ["FREE", "BASIC", "PREMIUM", "ENTERPRISE"],
       unique: true
     },
     description: {
@@ -122,13 +122,8 @@ export const seedSubscriptionPlans = async () => {
       return;
     }
 
-    // Try to find an admin to associate with the plans
-    const Admin = mongoose.model('Admin');
-    let admin = await Admin.findOne();
-    
-    // If no admin exists, we'll use a placeholder ID to avoid validation error
-    // but ideally an admin should exist
-    const systemId = admin?._id || new mongoose.Types.ObjectId("000000000000000000000001");
+    // Try to find an admin or owner to associate with the plans
+    const systemId = new mongoose.Types.ObjectId("000000000000000000000001");
 
     const defaultPlans = [
       {

@@ -24,9 +24,18 @@ const categorySchema = new mongoose.Schema({
   },
   createdAt: {
     type: Date,
-    default: Date.now, // Automatically set the creation date
+    default: Date.now,
   },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+}, {
+  timestamps: true
 });
+
+// Index for efficient querying and uniqueness per owner
+categorySchema.index({ ownerId: 1, categoryName: 1 }, { unique: true });
 
 // Create the Category model
 const Category = mongoose.models.Category || mongoose.model('Category', categorySchema);
