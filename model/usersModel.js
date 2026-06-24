@@ -1,6 +1,6 @@
 // model/userModel.js
 import mongoose from "mongoose";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 
 const cartItemSchema = new mongoose.Schema({
   productId: {

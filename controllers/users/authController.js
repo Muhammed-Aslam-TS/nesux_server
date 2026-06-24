@@ -6,7 +6,7 @@
 // import { generateAccessToken } from "../../middlewares/JWT.js"; // Import the function to generate JWT
 
 import { v4 as uuidv4 } from 'uuid';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { generateAccessToken } from '../../middlewares/JWT.js'; // JWT generation function
 import Owner from '../../model/OwnerModels.js';
 import User from "../../model/usersModel.js";

@@ -209,12 +209,7 @@ const getContentType = (extension) => {
     'xml': 'text/xml',
     'json': 'application/json',
 
-    // Archives
-    'zip': 'application/zip',
-    'rar': 'application/x-rar-compressed',
-    '7z': 'application/x-7z-compressed',
-    'tar': 'application/x-tar',
-    'gz': 'application/gzip'
+
   };
   return types[extension.toLowerCase()] || 'application/octet-stream';
 };

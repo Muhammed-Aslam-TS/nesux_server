@@ -17,176 +17,23 @@ import {
   createCashfreeOrder,
   verifyCashfreePayment,
 } from "../../middlewares/Cashfree.js";
-import { sendOrderNotifications } from "../../services/notificationService.js";
-import { createOwnerNotification } from "../../services/notificationService.js";
 import dotenv from "dotenv";
 import crypto from "crypto";
 import PDFDocument from "pdfkit";
+import {
+  manageStock,
+  validateStockAvailability,
+  checkCODEligibility,
+  calculateAdvanceCODAmount,
+  formatOrderItems,
+  calculateOrderDiscounts,
+  getProductMapForItems,
+  triggerOwnerNotificationHelper,
+  sendOrderEmailHelper,
+} from "../../helpers/orderHelpers.js";
+import { validateRequiredFields } from "../../helpers/validationHelpers.js";
+
 dotenv.config();
-
-const manageStock = async (items, operation = "deduct") => {
-  const results = {
-    errors: [],
-    failed: [],
-    success: true,
-    updated: [],
-  };
-
-  try {
-    for (const item of items) {
-      const productId = item.productId?._id || item.productId || item._id;
-      const quantity = Number(item.quantity || 0);
-      const variantId = item.variantId;
-
-      if (!productId || quantity <= 0) {
-        continue;
-      }
-
-      try {
-        const product = await Product.findById(productId);
-        if (!product) {
-          results.failed.push({
-            productId,
-            reason: "Product not found",
-          });
-          continue;
-        }
-
-        const productName = product.title || product.name;
-        let currentStock = 0;
-        let variant = null;
-
-        if (product.productType === 'variable') {
-          // If no variant specified, auto-select first available variant with stock
-          if (!variantId) {
-            // Find first variant with stock > 0
-            const availableVariant = product.variants.find(v => v.stockQuantity > 0);
-            if (availableVariant) {
-              variant = availableVariant;
-              console.log(`⚡ Auto-selected variant ${variant._id} for product ${productName}`);
-            } else {
-              // No variant with stock available
-              results.failed.push({
-                productId,
-                productName,
-                reason: "No variants available in stock",
-              });
-              results.success = false;
-              continue;
-            }
-          } else {
-            variant = product.variants.id(variantId);
-            if (!variant) {
-              results.failed.push({
-                productId,
-                productName,
-                reason: "Variant not found",
-              });
-              results.success = false;
-              continue;
-            }
-          }
-          currentStock = variant.stockQuantity;
-        } else {
-          currentStock = product.baseStock !== undefined ? product.baseStock : (product.stock || 0);
-        }
-
-        if (operation === "deduct") {
-          // Check if sufficient stock available
-          if (currentStock < quantity) {
-            results.failed.push({
-              available: currentStock,
-              productId,
-              productName: productName,
-              reason: "Insufficient stock",
-              requested: quantity,
-            });
-            results.success = false;
-            continue;
-          }
-
-          // Deduct stock
-          if (variant) {
-            variant.stockQuantity = Math.max(0, variant.stockQuantity - quantity);
-            variant.inStock = variant.stockQuantity > 0;
-          } else if (product.baseStock !== undefined) {
-            product.baseStock = Math.max(0, product.baseStock - quantity);
-          } else {
-            product.stock = Math.max(0, product.stock - quantity);
-            product.inStock = product.stock > 0;
-          }
-
-          if (!product.sku) {
-            product.sku = product._id.toString();
-          }
-          if (product.specifications && Array.isArray(product.specifications)) {
-            product.specifications = product.specifications.filter(
-              (spec) => spec.key && spec.value
-            );
-          }
-          await product.save({ validateBeforeSave: false });
-
-          results.updated.push({
-            inStock: product.inStock,
-            productId,
-            productName: productName,
-            quantity,
-            remainingStock: variant ? variant.stockQuantity : (product.baseStock !== undefined ? product.baseStock : product.stock),
-          });
-        } else if (operation === "restore") {
-          // Restore stock
-          if (variant) {
-            variant.stockQuantity = (variant.stockQuantity || 0) + quantity;
-            variant.inStock = variant.stockQuantity > 0;
-          } else if (product.baseStock !== undefined) {
-            product.baseStock = (product.baseStock || 0) + quantity;
-          } else {
-            product.stock = (product.stock || 0) + quantity;
-            product.inStock = product.stock > 0;
-          }
-
-          if (!product.sku) {
-            product.sku = product._id.toString();
-          }
-          if (product.specifications && Array.isArray(product.specifications)) {
-            product.specifications = product.specifications.filter(
-              (spec) => spec.key && spec.value
-            );
-          }
-          await product.save({ validateBeforeSave: false });
-
-          results.updated.push({
-            inStock: product.inStock,
-            productId,
-            productName: productName,
-            quantity,
-            restoredStock: variant ? variant.stockQuantity : (product.baseStock !== undefined ? product.baseStock : product.stock),
-          });
-        }
-      } catch (error) {
-        console.error(
-          `❌ Error managing stock for product ${productId}:`,
-          error
-        );
-        results.failed.push({
-          productId,
-          reason: error.message || "Unknown error",
-        });
-        results.errors.push({
-          error: error.message,
-          productId,
-        });
-      }
-    }
-
-    return results;
-  } catch (error) {
-    console.error("❌ Error in manageStock function:", error);
-    results.success = false;
-    results.errors.push({ error: error.message });
-    return results;
-  }
-};
 // ✅ CREATE PAYMENT ORDER
 export const createPaymentOrder = async (req, res) => {
   try {
@@ -222,78 +69,29 @@ export const createPaymentOrder = async (req, res) => {
     const { couponCode, items } = user.cart;
 
     // 🧾 1️⃣ Validate required fields
-    if (!userId || !amount || items.length === 0) {
+    const validation = validateRequiredFields({ userId, amount, items });
+    if (!validation.isValid) {
       console.warn("⚠️ createPaymentOrder: Missing required fields", { userId: !!userId, amount, itemsLength: items.length });
       return res.status(400).json({
-        message: "Missing required fields: amount, items, or userId",
+        message: validation.message,
         success: false,
       });
     }
 
+    // Pre-fetch all products for stock and COD validation
+    const productMap = await getProductMapForItems(items);
+
     // 🧾 1.5️⃣ Validate stock availability before creating payment order
-    // Just check stock without deducting (actual deduction happens after payment confirmation)
-    for (const item of items) {
-      const productId = item.productId || item._id;
-      const quantity = Number(item.quantity || 0);
-      const variantId = item.variantId;
-
-      if (!productId || quantity <= 0) continue;
-
-      const product = await Product.findById(productId);
-      if (!product) {
-        return res.status(400).json({
-          message: `Product not found: ${productId}`,
-          success: false,
-        });
-      }
-
-      const productName = product.title || product.name;
-      let availableStock = 0;
-
-      if (product.productType === 'variable' && product.variants && product.variants.length > 0) {
-        let variant = null;
-        
-        if (!variantId) {
-           // Auto-select first available variant
-           variant = product.variants.find(v => v.stockQuantity > 0) || product.variants[0];
-           
-           if (!variant) {
-              return res.status(400).json({
-                success: false,
-                message: `No available variants for ${productName}`,
-                productId,
-                productName,
-              });
-           }
-        } else {
-           variant = product.variants.id(variantId);
-        }
-
-        if (!variant) {
-          console.warn(`⚠️ Stock Check: Variant not found for ${productName} (Variant ID: ${variantId})`);
-          return res.status(400).json({
-            success: false,
-            message: `Selected variant not found for ${productName}`,
-            productId,
-            productName,
-          });
-        }
-        availableStock = variant.stockQuantity;
-      } else {
-        availableStock = product.baseStock !== undefined ? product.baseStock : (product.stock || 0);
-      }
-
-      if (availableStock < quantity) {
-        console.warn(`⚠️ Stock Check: Insufficient stock for ${productName}. Available: ${availableStock}, Requested: ${quantity}`);
-        return res.status(400).json({
-          success: false,
-          message: `Insufficient stock for ${productName}. Available: ${availableStock}, Requested: ${quantity}`,
-          productId,
-          productName: productName,
-          available: availableStock,
-          requested: quantity,
-        });
-      }
+    const stockCheck = validateStockAvailability(items, productMap);
+    if (!stockCheck.success) {
+      return res.status(stockCheck.statusCode || 400).json({
+        success: false,
+        message: stockCheck.message,
+        productId: stockCheck.productId,
+        productName: stockCheck.productName,
+        available: stockCheck.available,
+        requested: stockCheck.requested,
+      });
     }
 
     // Use owner from tenant middleware or from user's ownerId
@@ -307,7 +105,7 @@ export const createPaymentOrder = async (req, res) => {
     }
 
     const owner = await Owner.findById(ownerId)
-      .select("+razorpayKeySecret +cashfreeSecretKey +cashfreeMode");
+      .select("+razorpayKeySecret +cashfreeSecretKey +cashfreeMode +settings.notificationSettings.emailPass +settings.notificationSettings.emailUser");
 
     let razorpayOrder = null;
     let cashfreeOrder = null;
@@ -323,62 +121,19 @@ export const createPaymentOrder = async (req, res) => {
         blockedPincodes: []
       };
 
-      // 🛡️ Check return history to block COD if more than two returns
-      const returnCount = await Order.countDocuments({
+      const codEligible = await checkCODEligibility({
         userId,
-        orderStatus: { $in: ["RETURN", "RETURN_REQUESTED", "RETURNED"] }
+        items,
+        shippingZip: address.zipCode || address.pincode,
+        codSettings,
+        productMap
       });
 
-      if (returnCount > 2) {
+      if (!codEligible.allowed) {
         return res.status(400).json({
-          message: "Cash on Delivery is no longer available for your account due to excessive returns history.",
+          message: codEligible.message,
           success: false
         });
-      }
-
-      // 🛡️ Check cancellation history to block COD if 2 or more cancellations
-      const cancelCount = await Order.countDocuments({
-        userId,
-        orderStatus: "CANCELLED"
-      });
-
-      if (cancelCount >= 2) {
-        return res.status(400).json({
-          message: "Cash on Delivery is no longer available for your account due to multiple cancelled orders.",
-          success: false
-        });
-      }
-
-      if (!codSettings.enabled) {
-        return res.status(400).json({
-          message: "Cash on Delivery is currently disabled for this store.",
-          success: false
-        });
-      }
-
-      // Check Product-Specific Rules (Blocking & Validation)
-      for (const item of items) {
-        const pid = (item.productId?._id || item.productId || item._id).toString();
-        
-        // Check 1: Global Settings Map (codSettings.productRules)
-        const rule = codSettings.productRules ? codSettings.productRules[pid] : null;
-        if (rule && rule.blocked) {
-           const pName = item.product_name || item.name || item.title || "one of the items";
-           return res.status(400).json({
-             message: `Cash on Delivery is not available for product: ${pName}`,
-             success: false
-           });
-        }
-
-        // Check 2: Product Document Filter (flags.codBlocked)
-        const productDoc = await Product.findById(pid);
-        if (productDoc && productDoc.flags?.codBlocked) {
-           const pName = productDoc.title || item.product_name || "one of the items";
-           return res.status(400).json({
-             message: `Cash on Delivery is unavailable for: ${pName}`,
-             success: false
-           });
-        }
       }
 
       const totalAmount = amount; // Using amount directly as passed
@@ -396,50 +151,13 @@ export const createPaymentOrder = async (req, res) => {
           success: false
         });
       }
-
-      // Check Pincode
-      const shippingZip = address.zipCode || address.pincode;
-      
-      // Check Blocked List (Always applies if present)
-      if (codSettings.blockedPincodes?.includes(shippingZip)) {
-        return res.status(400).json({
-          message: "Cash on Delivery is currently unavailable for your pincode.",
-          success: false
-        });
-      }
-
-      // Check Allow List (If strict mode is enabled)
-      if (!codSettings.allowAllPincodes) {
-        if (!shippingZip) {
-          return res.status(400).json({
-            message: "Pincode is required to check COD availability.",
-            success: false
-          });
-        }
-
-        const isAllowed = codSettings.allowedPincodes?.includes(shippingZip);
-        
-        if (!isAllowed) {
-          return res.status(400).json({
-             message: "Cash on Delivery is not available for your pincode.",
-             success: false
-          });
-        }
-      }
     }
 
     const orderNumber = `ORD-${Date.now()}`;
     let advanceAmount = 0;
 
     if (paymentMethod.toUpperCase() === "COD" || paymentMethod.toUpperCase() === "CASH_ON_DELIVERY") {
-      const codSettings = owner.settings?.codSettings;
-      if (codSettings?.advanceAmountEnabled) {
-        if (codSettings.advanceAmountType === 'percentage') {
-          advanceAmount = Math.ceil((amount * (codSettings.advanceAmountValue || 0)) / 100);
-        } else {
-          advanceAmount = codSettings.advanceAmountValue || 0;
-        }
-      }
+      advanceAmount = calculateAdvanceCODAmount(amount, owner.settings?.codSettings);
     }
 
     if (paymentMethod.toUpperCase() === "RAZORPAY" || (advanceAmount > 0 && owner?.razorpayKeyId && owner?.razorpayKeySecret)) {
@@ -500,15 +218,7 @@ export const createPaymentOrder = async (req, res) => {
     }
 
     // 🧮 3️⃣ Format items
-    const formattedItems = items.map((item) => ({
-      discount: item.discount || 0,
-      image: item.image || "",
-      price: item.price,
-      product_name: item.name || item.product_name || "Unnamed Product",
-      productId: item.productId || item._id,
-      variantId: item.variantId,
-      quantity: item.quantity,
-    }));
+    const formattedItems = formatOrderItems(items, productMap);
 
     // 📦 4️⃣ Save order in MongoDB
     const order = new Order({
@@ -540,30 +250,19 @@ export const createPaymentOrder = async (req, res) => {
     await order.save();
     
     // 📢 Trigger notification for store owner
-    if (order.paymentMethod === "COD") {
-       createOwnerNotification({
-         ownerId,
-         type: "NEW_ORDER",
-         title: "New COD Order Received",
-         message: `You have a new COD order ${order.orderNumber} for ₹${amount}`,
-         orderId: order._id
-       });
+    if (order.paymentMethod === "COD" || order.paymentMethod === "CASH_ON_DELIVERY") {
+      triggerOwnerNotificationHelper({
+        ownerId,
+        type: "NEW_ORDER",
+        order,
+        amount,
+      });
     }
 
-    // 🚚 5️⃣ Create Shiprocket order (MOVED TO MANUAL IN ADMIN)
-    // Removed automatic creation to allow admin to control the timing
-    /*
-    try {
-      const shiprocketPayload = {
-        ...order.toObject(),
-        userId: user,
-        userEmail: user.email
-      };
-      await createShiprocketOrder(shiprocketPayload);
-    } catch (shipError) {
-      console.warn("⚠️ Shiprocket order creation failed:", shipError.message);
+    // 📧 Send confirmation email
+    if (user && user.email) {
+      sendOrderEmailHelper(order._id, user.email, owner);
     }
-    */
 
     // 🎉 6️⃣ Success response
     let finalKey = owner.cashfreeAppId;
@@ -613,7 +312,8 @@ export const generateInvoice = async (req, res) => {
     // Fetch order details, ensuring it belongs to the user
     const order = await Order.findOne({ _id: orderId, userId })
       .populate("userId", "username email")
-      .populate("items.productId", "name");
+      .populate("items.productId", "name")
+      .lean();
 
     if (!order) {
       return res.status(404).json({
@@ -746,7 +446,7 @@ export const returnOrder = async (req, res) => {
     const { reason } = req.body;
     const userId = req.user.id;
 
-    const order = await Order.findOne({ _id: orderId, userId });
+    const order = await Order.findOne({ _id: orderId, userId }).populate("userId", "ownerId");
     if (!order) {
       return res.status(404).json({ message: "Order not found", success: false });
     }
@@ -770,14 +470,12 @@ export const returnOrder = async (req, res) => {
     await order.save();
     
     // 📢 Trigger notification for store owner
-    const user = await User.findById(userId);
-    if (user && user.ownerId) {
-      createOwnerNotification({
-        ownerId: user.ownerId,
+    if (order.userId && order.userId.ownerId) {
+      triggerOwnerNotificationHelper({
+        ownerId: order.userId.ownerId,
         type: "RETURN_REQUESTED",
-        title: "Order Return Requested",
-        message: `A return has been requested for order ${order.orderNumber}. Reason: ${reason}`,
-        orderId: order._id
+        order,
+        reason,
       });
     }
 
@@ -794,7 +492,8 @@ export const generateGiftReceipt = async (req, res) => {
     const userId = req.user.id;
 
     const order = await Order.findOne({ _id: orderId, userId })
-      .populate("items.productId", "name");
+      .populate("items.productId", "name")
+      .lean();
 
     if (!order) {
       return res.status(404).json({ message: "Order not found", success: false });
@@ -844,7 +543,7 @@ export const cancelOrder = async (req, res) => {
     }
 
     // Find the order and ensure it belongs to the user
-    const order = await Order.findOne({ _id: orderId, userId });
+    const order = await Order.findOne({ _id: orderId, userId }).populate("userId", "ownerId");
     if (!order) {
       return res.status(404).json({
         message: "Order not found or unauthorized",
@@ -877,14 +576,12 @@ export const cancelOrder = async (req, res) => {
     await order.save();
 
     // 📢 Trigger notification for store owner
-    const user = await User.findById(userId);
-    if (user && user.ownerId) {
-      createOwnerNotification({
-        ownerId: user.ownerId,
+    if (order.userId && order.userId.ownerId) {
+      triggerOwnerNotificationHelper({
+        ownerId: order.userId.ownerId,
         type: "ORDER_CANCELLED",
-        title: "Order Cancelled by Customer",
-        message: `Order ${order.orderNumber} has been cancelled by the customer. Reason: ${reason || "Not specified"}`,
-        orderId: order._id
+        order,
+        reason,
       });
     }
 
@@ -910,7 +607,7 @@ export const verifyAndProcessPayment = async (req, res) => {
 
     const ownerId = req.ownerId || req.user?.ownerId;
     const owner = await Owner.findById(ownerId)
-      .select("+razorpayKeySecret +cashfreeSecretKey")
+      .select("+razorpayKeySecret +cashfreeSecretKey +settings.notificationSettings.emailPass +settings.notificationSettings.emailUser")
       .lean();
 
     let order = null;
@@ -1007,13 +704,14 @@ export const verifyAndProcessPayment = async (req, res) => {
     await order.save();
 
     // 📢 Trigger notification for store owner
-    createOwnerNotification({
-      ownerId: order.ownerId || ownerId, // Use resolved ownerId
+    triggerOwnerNotificationHelper({
+      ownerId: order.ownerId || ownerId,
       type: "NEW_ORDER",
-      title: "New Paid Order Received",
-      message: `You have a new paid order ${order.orderNumber} for ₹${order.totalAmount}`,
-      orderId: order._id
+      order,
     });
+
+    // 📧 Send confirmation email
+    sendOrderEmailHelper(order._id, null, owner);
 
     res.status(200).json({
       success: true,
@@ -1086,18 +784,20 @@ export const getUserOrders = async (req, res) => {
     const limitNum = parseInt(limit, 10);
     const skip = (pageNum - 1) * limitNum;
 
-    const totalItems = await Order.countDocuments(query);
+    // Fetch total count and orders concurrently
+    const [totalItems, orders] = await Promise.all([
+      Order.countDocuments(query),
+      Order.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .populate({
+          path: "items.productId",
+          select: "name price images stock inStock",
+        })
+        .lean()
+    ]);
     const totalPages = Math.ceil(totalItems / limitNum);
-
-    // Fetch all orders for the logged-in user, newest first
-    const orders = await Order.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNum)
-      .populate({
-        path: "items.productId",
-        select: "name price images stock inStock",
-      });
     res.status(200).json({
       data: orders,
       pagination: {
@@ -1189,74 +889,21 @@ export const createOrder = async (req, res) => {
 
     const currentUserId = req.user?.id || userId;
 
-    if (!currentUserId || !Array.isArray(items) || items.length === 0) {
+    const validation = validateRequiredFields({ userId: currentUserId, items });
+    if (!validation.isValid) {
       return res.status(400).json({
-        message: "Missing required fields: userId or items",
+        message: validation.message,
         success: false,
       });
     }
 
     // --- Secure Offer Application Logic ---
-    const now = new Date();
-    const activeOffers = await Offer.find({
-      endDate: { $gte: now },
-      startDate: { $lte: now },
-      status: 'active',
-    }).lean();
-
-    let calculatedSubtotal = 0;
-    let totalDiscount = 0;
-    const appliedOffers = [];
-
-    const processedItems = await Promise.all(items.map(async (item) => {
-      const product = await Product.findById(item.productId).lean();
-      if (!product) return { ...item, finalPrice: item.price };
-
-      calculatedSubtotal += item.price * item.quantity;
-
-      const eligibleOffers = activeOffers.filter(offer => {
-        if (offer.scope === 'all') return true;
-        if (offer.scope === 'product' && offer.appliesToProducts.some(pId => pId.equals(product._id))) return true;
-        if (offer.scope === 'category' && product.categoryId.some(catId => offer.appliesToCategories.some(oCatId => oCatId.equals(catId)))) return true;
-        return false;
-      });
-
-      let bestOffer = null;
-      let maxItemDiscount = 0; // This will now be the max TOTAL discount for the line item.
-
-      eligibleOffers.forEach(offer => {
-        let currentItemDiscount = 0;
-        if (offer.discountType === 'percentage') {
-          let discountPerItem = (item.price * offer.discountValue) / 100;
-          if (offer.maxDiscountAmount) {
-            discountPerItem = Math.min(discountPerItem, offer.maxDiscountAmount);
-          }
-          currentItemDiscount = discountPerItem * item.quantity; // Total discount for this offer
-        } else if (offer.discountType === 'fixed') {
-          currentItemDiscount = offer.discountValue * item.quantity; // Total discount for this offer
-        } else if (offer.discountType === 'bogo' && offer.buyQuantity > 0 && offer.getQuantity > 0) {
-          // For BOGO, calculate how many full sets of (buy + get) the user has.
-          const itemsInOneSet = offer.buyQuantity + offer.getQuantity;
-          if (item.quantity >= itemsInOneSet) {
-            const numberOfSets = Math.floor(item.quantity / itemsInOneSet);
-            // Total discount is the price of the free items
-            currentItemDiscount = numberOfSets * offer.getQuantity * item.price;
-          }
-        }
-
-        if (currentItemDiscount > maxItemDiscount) {
-          maxItemDiscount = currentItemDiscount;
-          bestOffer = offer;
-        }
-      });
-
-      if (bestOffer) {
-        totalDiscount += maxItemDiscount; // Add the total line item discount
-        appliedOffers.push({ discountAmount: maxItemDiscount, offerCode: bestOffer.offerCode, offerId: bestOffer._id });
-      }
-
-      return item; // Return original item, totals are calculated separately
-    }));
+    const {
+      processedItems,
+      calculatedSubtotal,
+      totalDiscount,
+      appliedOffers
+    } = await calculateOrderDiscounts(items);
 
     // 2. Check and deduct stock
     const stockResult = await manageStock(processedItems, "deduct");
@@ -1288,6 +935,8 @@ export const createOrder = async (req, res) => {
     });
 
     const savedOrder = await newOrder.save();
+
+    sendOrderEmailHelper(savedOrder._id);
 
     // 4. Create Shiprocket order (MOVED TO MANUAL IN ADMIN)
     /*
@@ -1409,11 +1058,12 @@ export const createCODOrder = async (req, res) => {
       console.log("🛒 Using items from user cart");
     }
 
-    if (!userId || !Array.isArray(items) || items.length === 0) {
+    const validation = validateRequiredFields({ userId, items });
+    if (!validation.isValid) {
       return res
         .status(400)
         .json({
-          message: "Missing required fields: userId or items. Please add items to your cart.",
+          message: validation.message + ". Please add items to your cart.",
           success: false,
         });
     }
@@ -1440,84 +1090,29 @@ export const createCODOrder = async (req, res) => {
         "",
     };
 
-    // Check COD availability for user (Excessive returns check)
-    const returnCount = await Order.countDocuments({
-        userId,
-        orderStatus: { $in: ["RETURN", "RETURN_REQUESTED", "RETURNED"] }
+    // Pre-fetch all products for product-specific COD rules check
+    const productMap = await getProductMapForItems(items);
+
+    // Check COD availability
+    const owner = await Owner.findOne().select('+settings.notificationSettings.emailPass +settings.notificationSettings.emailUser');
+    const codSettings = owner?.settings?.codSettings || { enabled: true };
+    const codEligible = await checkCODEligibility({
+      userId,
+      items,
+      shippingZip: shipping.zipCode,
+      codSettings,
+      productMap
     });
 
-    if (returnCount > 2) {
-        return res.status(400).json({
-            message: "Cash on Delivery is no longer available for your account due to excessive returns history.",
-            success: false,
-        });
-    }
-
-    // Check COD availability for user (Excessive cancellations check)
-    const cancelCount = await Order.countDocuments({
-        userId,
-        orderStatus: "CANCELLED"
-    });
-
-    if (cancelCount >= 2) {
-        return res.status(400).json({
-            message: "Cash on Delivery is no longer available for your account due to multiple cancelled orders.",
-            success: false,
-        });
-    }
-
-    // Check COD availability for pincode
-    const owner = await Owner.findOne();
-    if (owner && owner.settings && owner.settings.codSettings) {
-        const codSettings = owner.settings.codSettings;
-        
-        if (!codSettings.enabled) {
-             return res.status(400).json({
-                message: "Cash on Delivery is currently disabled.",
-                success: false,
-            });
-        }
-        
-        const postalCode = shipping.zipCode ? String(shipping.zipCode).trim() : "";
-        if (postalCode) {
-            // 1. Check if definitely blocked
-            if (codSettings.blockedPincodes && codSettings.blockedPincodes.includes(postalCode)) {
-                return res.status(400).json({
-                    message: `Cash on Delivery is not available for pincode ${postalCode} (Restricted Area)`,
-                    success: false,
-                });
-            }
-
-            // 2. If restricted to specific pincodes, check allowed list
-            if (!codSettings.allowAllPincodes) {
-                const isAllowed = codSettings.allowedPincodes && codSettings.allowedPincodes.includes(postalCode);
-                if (!isAllowed) {
-                    return res.status(400).json({
-                        message: `Cash on Delivery is not currently available for your location (${postalCode})`,
-                        success: false,
-                    });
-                }
-            }
-        }
+    if (!codEligible.allowed) {
+      return res.status(400).json({
+        message: codEligible.message,
+        success: false,
+      });
     }
 
     // Normalize items (ensure consistent shape)
-    const formattedItems = items.map((item) => ({
-      discount: item.discount || 0,
-      image:
-        item.image ||
-        (item.productId && (item.productId.images || item.productId.image)
-          ? Array.isArray(item.productId.images)
-            ? item.productId.images[0]
-            : item.productId.image
-          : ""),
-      price: Number(item.price || item.productId?.price || 0),
-      product_name:
-        item.product_name || item.name || item.productName || "Unnamed Product",
-      productId: item.productId?._id || item.productId || item._id,
-      variantId: item.variantId,
-      quantity: Number(item.quantity || 1),
-    }));
+    const formattedItems = formatOrderItems(items, productMap);
 
     // Determine total amount: prefer explicit `amount` or `totalAmount`, otherwise compute from items
     const computedTotal = formattedItems.reduce(
@@ -1565,6 +1160,11 @@ export const createCODOrder = async (req, res) => {
     await savedOrder.save();
 
     console.log("✅ COD Order created and stock updated:", stockResult.updated);
+
+    // 📧 Send confirmation email
+    if (user && user.email) {
+      sendOrderEmailHelper(savedOrder._id, user.email, owner);
+    }
 
     // Optional: create Shiprocket order immediately (MOVED TO MANUAL IN ADMIN)
     /*

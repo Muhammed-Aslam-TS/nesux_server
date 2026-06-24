@@ -1,6 +1,6 @@
 import { generateAccessToken } from "../../middlewares/JWT.js";
 import Owner from "../../model/OwnerModels.js";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 import { processBase64Image, deleteFromFirebase } from "../../middlewares/base64Convert.js";
 import User from "../../model/usersModel.js";

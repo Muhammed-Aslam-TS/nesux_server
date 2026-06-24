@@ -443,12 +443,38 @@ export const getTheme = async (req, res) => {
           message: "Store theme not found for this domain.",
         });
     }
-    const theme = await Theme.findOne({ ownerId }).lean();
+    let theme = await Theme.findOne({ ownerId, isActive: true }).lean();
+    if (!theme) {
+      theme = await Theme.findOne({ ownerId }).sort({ updatedAt: -1 }).lean();
+    }
     if (!theme) {
       // Return a default theme structure if none is found
       return res
         .status(200)
-        .json({ success: true, data: { sections: [], settings: {} } });
+        .json({
+          success: true,
+          data: {
+            themeName: "Default Theme",
+            isActive: true,
+            sections: [
+              { id: "categories-1", type: "categories", order: 1, enabled: true, settings: {} },
+              { id: "hero-1", type: "hero", order: 2, enabled: true, settings: {} },
+              { id: "flashSales-1", type: "flashSales", order: 3, enabled: true, settings: {} },
+              { id: "featured-1", type: "featuredProducts", order: 4, enabled: true, settings: { limit: 8 } },
+              { id: "shopByVideos-1", type: "shopByVideos", order: 5, enabled: true, settings: {} },
+              { id: "serviceHighlights-1", type: "serviceHighlights", order: 6, enabled: true, settings: {} },
+              { id: "bundleShowcase-1", type: "bundleShowcase", order: 7, enabled: true, settings: {} },
+              { id: "trendingProducts-1", type: "trendingProducts", order: 8, enabled: true, settings: {} },
+              { id: "lifestyleCategories-1", type: "lifestyleCategories", order: 9, enabled: true, settings: {} },
+              { id: "trendingCategories-1", type: "trendingCategories", order: 10, enabled: true, settings: {} },
+              { id: "brandSpotlight-1", type: "brandSpotlight", order: 11, enabled: true, settings: {} },
+              { id: "brandMarquee-1", type: "brandMarquee", order: 12, enabled: true, settings: {} },
+              { id: "timeBasedOffer-1", type: "timeBasedOffer", order: 13, enabled: true, settings: {} },
+              { id: "testimonials-1", type: "testimonials", order: 14, enabled: true, settings: {} }
+            ],
+            settings: {}
+          }
+        });
     }
     res.status(200).json({ success: true, data: theme });
   } catch (error) {
